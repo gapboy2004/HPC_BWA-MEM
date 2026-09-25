@@ -10,14 +10,14 @@ SRCS_CU = bwa_sw.cu
 
 OBJS = $(SRCS_C:.c=.o) $(SRCS_CU:.cu=.o)
 
-.PHONY: all test clean
+.PHONY: all run clean
 
 all: libbwa.a
 
 libbwa.a: $(OBJS)
 	ar rcs $@ $^
 
-test: main
+run: main
 	./main
 
 main: main.c $(OBJS)

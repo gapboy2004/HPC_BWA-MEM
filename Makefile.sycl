@@ -1,16 +1,17 @@
-# ==== Makefile สำหรับ Own_BWA (SYCL version) ====
-# ใช้:  make          → build sw_sycl
-#       make run      → build แล้วรันเลย
-#       make clean    → ลบ .o + binary
-#       make rebuild  → clean แล้ว build ใหม่หมด
+# ==== Makefile สำหรับ SYCL version ====
+# ใช้:  make                          → build sw_sycl (generic, รันได้ทั้ง NVIDIA/AMD)
+#       make ACPP_TARGETS=cuda:sm_86  → build เฉพาะ GPU (ไม่มี JIT ตอนรัน)
+#       make run / clean / rebuild
 
 # ---- compiler ----
 CC   = gcc
 ACPP = acpp
 
 # ---- flags ----
-ACPP_FLAGS = -O3 --acpp-targets=generic
-LDLIBS     = -lz
+ACPP_TARGETS ?= generic
+ACPP_FLAGS    = -O3 --acpp-targets=$(ACPP_TARGETS)
+CFLAGS        = -O2 -DUSE_SYCL          # ★ ให้ main.c เลือก SYCL
+LDLIBS        = -lz
 
 # ---- ไฟล์ ----
 TARGET   = sw_sycl
@@ -18,35 +19,33 @@ C_SRC    = main.c
 CPP_SRC  = bwa_sw_sycl.cpp
 C_OBJ    = $(C_SRC:.c=.o)
 CPP_OBJ  = $(CPP_SRC:.cpp=.o)
-KSW_OBJ  = ksw.o                      # ★ เพิ่ม
-OBJS     = $(C_OBJ) $(CPP_OBJ) $(KSW_OBJ)   # ★ เพิ่ม KSW_OBJ
+KSW_OBJ  = ksw.o
+OBJS     = $(C_OBJ) $(CPP_OBJ) $(KSW_OBJ)
 
-# ---- default: build ----
 all: $(TARGET)
 
-# ---- link: ใช้ acpp เป็น linker (มี SYCL runtime) ----
+# ---- link ด้วย acpp (มี SYCL runtime) ----
 $(TARGET): $(OBJS)
 	$(ACPP) $(OBJS) $(LDLIBS) -o $(TARGET)
 
 # ---- compile main.c ด้วย gcc ----
 $(C_OBJ): $(C_SRC)
-	$(CC) -c $(C_SRC) -o $(C_OBJ)
+	$(CC) $(CFLAGS) -c $(C_SRC) -o $(C_OBJ)
+
 # ---- compile ksw.c (CPU reference จาก BWA) ----
 $(KSW_OBJ): ksw.c ksw.h
 	$(CC) -O2 -c ksw.c -o $(KSW_OBJ)
+
 # ---- compile SYCL ด้วย acpp ----
 $(CPP_OBJ): $(CPP_SRC)
 	$(ACPP) $(ACPP_FLAGS) -c $(CPP_SRC) -o $(CPP_OBJ)
 
-# ---- build แล้วรันเลย ----
 run: $(TARGET)
 	./$(TARGET)
 
-# ---- ลบ .o + binary ----
 clean:
 	rm -f $(OBJS) $(TARGET)
 
-# ---- clean แล้ว build ใหม่หมด ----
 rebuild: clean all
 
 .PHONY: all run clean rebuild

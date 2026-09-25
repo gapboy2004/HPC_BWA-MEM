@@ -12,6 +12,14 @@
 #include <stdint.h>
 #include "ksw.h"
 
+#ifdef USE_SYCL
+    #define run_multi_gpu sycl_multi_gpu
+    #define BACKEND_NAME "SYCL"
+#else
+    #define run_multi_gpu sw_multi_gpu
+    #define BACKEND_NAME "CUDA"
+#endif
+
 KSEQ_INIT(gzFile, gzread)
 
 static char *h_reads, *h_refs;
@@ -49,7 +57,7 @@ static double now_sec(void)
 //export PATH=/usr/local/cuda/bin:$PATH
 int main(int argc, char **argv)
 {
-      
+    printf("Backend: %s\n", BACKEND_NAME);
     max_tasks = 3000000;                       // default
     const char *e = getenv("MAX_TASKS");
     if (e && atoi(e) > 0) max_tasks = atoi(e);
@@ -142,9 +150,13 @@ int main(int argc, char **argv)
     //              h_refs, h_roff, h_rlen, rcur,
     //              n, score, qbeg, qend, rbeg, rend, cigar);
 
-    sycl_multi_gpu(h_reads, h_qoff, h_qlen, qcur,
-                   h_refs, h_roff, h_rlen, rcur,
-                   n, score, qbeg, qend, rbeg, rend, cigar);
+    // sycl_multi_gpu(h_reads, h_qoff, h_qlen, qcur,
+    //                h_refs, h_roff, h_rlen, rcur,
+    //                n, score, qbeg, qend, rbeg, rend, cigar);
+
+    run_multi_gpu(h_reads, h_qoff, h_qlen, qcur,
+              h_refs, h_roff, h_rlen, rcur,
+              n, score, qbeg, qend, rbeg, rend, cigar);
 
     unsigned long long total_cells = 0;
     for (int i = 0; i < n; ++i)
