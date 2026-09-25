@@ -1,0 +1,50 @@
+import random, sys
+
+# ---------- ปรับตรงนี้ ----------
+N          = 3000000     # จำนวนคู่ (เพิ่มได้ตามใจ)
+READ_LEN   = 150        # ความยาว query (read)
+SLACK      = 20         # target ยาวกว่า read เท่าไร
+SUB_RATE   = 0.01       # อัตรา substitution (~1% แบบ Illumina)
+INDEL_RATE = 0.0        # อัตรา indel — ★ ตั้ง 0 ถ้า band w=1 (ดูหมายเหตุ)
+SEED       = 45
+# --------------------------------
+
+random.seed(SEED)
+BASES = "ACGT"
+
+def load_ref(path):
+    parts = []
+    with open(path) as f:
+        for line in f:
+            if not line.startswith(">"):
+                parts.append(line.strip().upper())
+    return "".join(c for c in "".join(parts) if c in BASES)
+
+# ใช้ reference จริงถ้าใส่ path มา ไม่งั้นสุ่ม genome 5M
+ref = load_ref(sys.argv[1]) if len(sys.argv) > 1 else \
+      "".join(random.choice(BASES) for _ in range(5_000_000))
+maxpos = len(ref) - (READ_LEN + SLACK) - 1
+
+def mutate(s):
+    out = []
+    for c in s:
+        r = random.random()
+        if r < SUB_RATE:
+            out.append(random.choice(BASES.replace(c, "")))   # substitution
+        elif r < SUB_RATE + INDEL_RATE / 2:
+            continue                                           # deletion
+        elif r < SUB_RATE + INDEL_RATE:
+            out.append(c); out.append(random.choice(BASES))    # insertion
+        else:
+            out.append(c)
+    return "".join(out)
+
+with open("own_query_batch.fasta", "w") as fq, open("own_target_batch.fasta", "w") as ft:
+    for i in range(N):
+        pos    = random.randint(0, maxpos)
+        target = ref[pos : pos + READ_LEN + SLACK]     # target window (ยาวกว่า)
+        read   = mutate(ref[pos : pos + READ_LEN])     # query = subregion + mutation
+        fq.write(f">seq{i}\n{read}\n")
+        ft.write(f">seq{i}\n{target}\n")
+
+print(f"wrote {N} pairs")
