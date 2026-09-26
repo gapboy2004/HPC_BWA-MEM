@@ -8,6 +8,8 @@ NVFLAGS = -O2 -g
 SRCS_C  = bwa_build.c fm_index.c bwa_smem.c ksw.c
 SRCS_CU = bwa_sw.cu
 
+TARGET = sw_cuda
+
 OBJS = $(SRCS_C:.c=.o) $(SRCS_CU:.cu=.o)
 
 .PHONY: all run clean
@@ -17,10 +19,10 @@ all: libbwa.a
 libbwa.a: $(OBJS)
 	ar rcs $@ $^
 
-run: main
-	./main
+run: $(TARGET)
+	./$(TARGET)
 
-main: main.c $(OBJS)
+$(TARGET): main.c $(OBJS)
 	$(NVCC) -o $@ $^ -lz
 
 %.o: %.c bwa.h
