@@ -64,8 +64,6 @@ int main(int argc, char **argv)
     if (argc > 1 && atoi(argv[1]) > 0) max_tasks = atoi(argv[1]);
     printf("max_tasks = %d\n", max_tasks);
 
-    if (argc > 2 && atoi(argv[2]) > 0)
-        setenv("N_GPU", argv[2], 1);
 
     h_reads = malloc((size_t)max_tasks * MAX_QLEN);
     h_refs  = malloc((size_t)max_tasks * MAX_RLEN);

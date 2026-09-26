@@ -6,104 +6,49 @@
 #SBATCH --time=04:00:00
 #SBATCH --output=logs/%x-%j.out
 
-# ==== ตั้งค่า ====
-# เลือก backend ตอน submit ได้:  sbatch --export=ALL,BACKEND=cuda run_bench.slurm
-BACKEND=${BACKEND:-sycl}
-IMAGE=${IMAGE:-my-bwa-sw:latest}  # ★ ชื่อ docker image ของคุณ
-GPU_COUNTS=(1 2 4)
-SIZES=(500000 1000000)            # เพิ่มได้ เช่น 2000000 3000000 4000000 5000000
-REPEATS=3
-
-case "$BACKEND" in
-  sycl) BIN=./sw_sycl ;;
-  cuda) BIN=./main_cuda ;;
-  *) echo "Unknown BACKEND: $BACKEND"; exit 1 ;;
-esac
+# ==== ตั้งค่า (เปลี่ยนตอน submit ได้ด้วย --export=ALL,ชื่อ=ค่า) ====
+export BACKENDS=${BACKENDS:-"cuda sycl"}     # รันทั้งสองตัว หรือเลือกตัวเดียว
+export GPU_COUNTS=${GPU_COUNTS:-"1 2 4"}
+export SIZES=${SIZES:-"500000 1000000"}
+export REPEATS=${REPEATS:-3}
+export BUILD=${BUILD:-1}                     # 1 = build ใหม่ใน container ก่อนรัน
+export ARCH=${ARCH:-sm_70}                   # V100 (เครื่องตัวเองใช้ ARCH=sm_86 ฯลฯ)
+export ACPP_TARGETS=${ACPP_TARGETS:-cuda:$ARCH}
+IMAGE=${IMAGE:-my-sycl:v1}
 
 set -uo pipefail
-cd "$SLURM_SUBMIT_DIR"
 
-# ==== GPU ที่ Slurm จัดให้ (ต้องเป็น index จริงของเครื่อง) ====
-# docker daemon อยู่นอก cgroup ของ Slurm จึงมองเห็น GPU ทุกตัวของเครื่อง
-# ต้องส่ง index จริงให้ docker เอง ไม่อย่างนั้นอาจไปแย่ง GPU ของ job คนอื่น
-PHYS_GPUS=${SLURM_JOB_GPUS:-${CUDA_VISIBLE_DEVICES:-}}
-IFS=',' read -r -a ALLOC_GPUS <<< "$PHYS_GPUS"
-N_ALLOC=${#ALLOC_GPUS[@]}
-echo "Slurm allocated $N_ALLOC GPU(s), physical ids: $PHYS_GPUS"
-
-# ==== โฟลเดอร์ผลลัพธ์ ====
-OUTDIR=results/${BACKEND}_${SLURM_JOB_ID}
-mkdir -p "$OUTDIR"
-CSV=$OUTDIR/summary.csv
-
-# cache ของ AdaptiveCpp JIT เก็บไว้นอก container
-# (ไม่อย่างนั้น --rm ลบทิ้งทุกรอบ และทุกรอบจะ JIT ใหม่)
-mkdir -p .acpp_cache
-
-# ==== รันโปรแกรมใน container ด้วย GPU ที่กำหนด ====
-run_in_docker() {
-  local ids=$1; shift
-  docker run --rm \
-    --gpus "\"device=${ids}\"" \
-    --user "$(id -u):$(id -g)" \
-    -v "$PWD":/work -w /work \
-    -e ACPP_APPDB_DIR=/work/.acpp_cache \
-    "$IMAGE" "$@"
-}
-
-first_k_gpus() {
-  local k=$1
-  (IFS=','; echo "${ALLOC_GPUS[*]:0:$k}")
-}
-
-# ==== บันทึกสภาพแวดล้อม ====
-{
-  echo "job_id:     $SLURM_JOB_ID"
-  echo "backend:    $BACKEND"
-  echo "binary:     $BIN"
-  echo "image:      $IMAGE ($(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null | cut -c8-19))"
-  echo "node:       $(hostname)"
-  echo "allocated:  $N_ALLOC GPU(s) [physical: $PHYS_GPUS]"
-  echo "gpu_counts: ${GPU_COUNTS[*]}"
-  echo "sizes:      ${SIZES[*]}"
-  echo "repeats:    $REPEATS"
-  echo "date:       $(date '+%Y-%m-%d %H:%M:%S')"
-  echo "git:        $(git rev-parse --short HEAD 2>/dev/null || echo n/a)"
-  echo
-  run_in_docker "$PHYS_GPUS" nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv
-} > "$OUTDIR/env.txt" 2>&1
-
-echo "backend,node,n_gpus,gpu_ids,size,repeat,wall_sec,exit_code" > "$CSV"
-
-for ngpu in "${GPU_COUNTS[@]}"; do
-  if [ "$ngpu" -gt "$N_ALLOC" ]; then
-    echo "!! skip n_gpus=$ngpu (only $N_ALLOC allocated)"
-    continue
+# รันผ่าน sbatch → ใช้ค่าจาก Slurm
+# รันด้วย bash เองบน Ubuntu (ไม่มี Slurm) → ใช้โฟลเดอร์ปัจจุบันและ GPU ทุกตัว
+if [ -n "${SLURM_JOB_ID:-}" ]; then
+  cd "$SLURM_SUBMIT_DIR"
+  RUN_ID=$SLURM_JOB_ID
+  # docker daemon อยู่นอกการควบคุมของ Slurm จึงเห็น GPU ทุกตัวในเครื่อง
+  # ต้องส่งเฉพาะ GPU ที่ Slurm จัดให้ (index จริง) แทน all
+  PHYS_GPUS=${SLURM_JOB_GPUS:-${CUDA_VISIBLE_DEVICES:-}}
+  if [ -z "$PHYS_GPUS" ]; then
+    echo "No GPUs allocated by Slurm"; exit 1
   fi
+else
+  RUN_ID=manual_$(date +%Y%m%d_%H%M%S)
+  PHYS_GPUS=${GPUS:-all}             # เลือก GPU เองได้ เช่น GPUS=0,1
+fi
+echo "GPUs for container: $PHYS_GPUS"
 
-  ids=$(first_k_gpus "$ngpu")
-  echo "=== n_gpus=$ngpu  (physical GPU ids: $ids) ==="
+export OUTDIR=results/${RUN_ID}
+mkdir -p "$OUTDIR" logs
 
-  # warm-up ต่อชุด GPU ไม่นับผล
-  run_in_docker "$ids" "$BIN" "${SIZES[0]}" > "$OUTDIR/warmup_g${ngpu}.log" 2>&1
-
-  for size in "${SIZES[@]}"; do
-    for r in $(seq 1 "$REPEATS"); do
-      log=$OUTDIR/g${ngpu}_n${size}_r${r}.log
-      echo "Running $BIN $size  gpus=$ngpu  repeat $r/$REPEATS"
-
-      start=$(date +%s.%N)
-      run_in_docker "$ids" "$BIN" "$size" > "$log" 2>&1
-      rc=$?
-      end=$(date +%s.%N)
-
-      wall=$(awk -v s="$start" -v e="$end" 'BEGIN{printf "%.3f", e-s}')
-      echo "$BACKEND,$(hostname),$ngpu,\"$ids\",$size,$r,$wall,$rc" >> "$CSV"
-
-      [ "$rc" -ne 0 ] && echo "  !! exit code $rc, see $log"
-    done
-  done
-done
+# ไม่ใช้ -it เพื่อให้รันได้ทั้งใน sbatch (ไม่มี terminal) และรันเอง
+docker run --rm \
+  --runtime=nvidia \
+  -e NVIDIA_VISIBLE_DEVICES="$PHYS_GPUS" \
+  -e BACKENDS -e GPU_COUNTS -e SIZES -e REPEATS -e BUILD \
+  -e ARCH -e ACPP_TARGETS -e OUTDIR \
+  -e JOB_ID="$RUN_ID" -e NODE="$(hostname)" -e PHYS_GPUS="$PHYS_GPUS" \
+  -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+  -e ACPP_APPDB_DIR=/workspace/.acpp_cache \
+  -v "$PWD":/workspace \
+  -w /workspace \
+  "$IMAGE" bash bench_inner.sh
 
 echo "Done. Results in $OUTDIR"
-column -s, -t "$CSV" 2>/dev/null || cat "$CSV"

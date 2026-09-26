@@ -32,4 +32,4 @@ $(TARGET): main.c $(OBJS)
 	$(NVCC) $(NVFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) libbwa.a main
+	rm -f $(OBJS) libbwa.a $(TARGET)
