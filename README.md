@@ -110,6 +110,39 @@ make -f Makefile.sycl ACPP_TARGETS=hip:gfx90a          # AMD only, ahead-of-time
 Other targets: `make -f Makefile.sycl clean`, `make -f Makefile.sycl rebuild`.
 
 ---
+Running the benchmark
+
+Both backends take the same arguments:
+
+bash
+./sw_cuda <max_tasks>
+./sw_sycl <max_tasks>
+<max_tasks>: the upper limit on the number of extension tasks to process. The program packs at most this many tasks from the input; if the input contains fewer, it processes all of them.
+N_GPU (environment variable): number of GPUs to use. Defaults to the value built into the program; if more GPUs are requested than are available, the program falls back to what it finds.
+Examples
+bash
+./sw_cuda 30000                 # up to 30,000 tasks, default GPU count
+N_GPU=1 ./sw_cuda 30000         # 1 GPU
+N_GPU=2 ./sw_sycl 30000         # 2 GPUs, SYCL backend
+Output
+Backend: CUDA
+max_tasks = 30000
+packed 20000 tasks (skipped 0)
+using 1 / 1 GPU
+total cells = 85046531
+total: 0.273 sec  (20000 tasks, 73137 tasks/sec)
+GCUPS: 0.31
+Line	Meaning
+max_tasks	the limit passed on the command line
+packed N tasks	tasks actually loaded; this is the real workload size
+using X / Y GPU	GPUs used / GPUs available
+total cells	DP cells computed
+total: ... sec	extension time with throughput in tasks/sec
+GCUPS	giga cell updates per second
+
+Always check packed N tasks, not max_tasks. If max_tasks exceeds the input size (e.g. 30000 with a 20,000-task input), runs with different max_tasks values do the same amount of work. Use a larger input to test bigger workloads.
+
+Check using X / Y GPU matches N_GPU. A message like want 2 GPU but only 1 available -> use 1 means the run used fewer GPUs than requested.
 
 ## Switching GPU architecture or target
 
