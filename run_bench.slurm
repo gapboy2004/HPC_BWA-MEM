@@ -14,7 +14,7 @@ export REPEATS=${REPEATS:-3}
 export BUILD=${BUILD:-1}                     # 1 = build ใหม่ใน container ก่อนรัน
 export ARCH=${ARCH:-sm_70}                   # V100 (เครื่องตัวเองใช้ ARCH=sm_86 ฯลฯ)
 export ACPP_TARGETS=${ACPP_TARGETS:-cuda:$ARCH}
-IMAGE=${IMAGE:-my-sycl:v1}
+IMAGE=${IMAGE:-gapboy/hpc-bwa-mem:v1}
 
 set -uo pipefail
 

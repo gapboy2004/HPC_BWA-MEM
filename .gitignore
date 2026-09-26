@@ -12,3 +12,4 @@
 *.o
 *.o
 *.fasta
+results/
