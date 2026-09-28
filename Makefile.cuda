@@ -3,7 +3,10 @@ NVCC    = nvcc
 
 #CFLAGS  = -Wall -Wextra -O2 -g -std=c11
 CFLAGS = -Wall -Wextra -O2 -g -std=c11 -I$(CUDA_HOME)/include
-NVFLAGS = -O2 -g
+#NVFLAGS = -O2 -g
+NVFLAGS = -O2 -g \
+  -gencode arch=compute_70,code=sm_70 \
+  -gencode arch=compute_86,code=sm_86
 
 SRCS_C  = bwa_build.c fm_index.c bwa_smem.c ksw.c
 SRCS_CU = bwa_sw.cu
