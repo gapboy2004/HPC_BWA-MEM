@@ -184,8 +184,8 @@ void dump_results(const char *path, int n_tasks,
 }
 #endif
 
-#define MAX_QLEN 512
-#define MAX_RLEN 512
+#define MAX_QLEN 160
+#define MAX_RLEN 200
 #define MAX_CIGAR 256
 #define BAND_W 100
 // #define MAX_TASKS 5000000
