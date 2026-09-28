@@ -17,7 +17,7 @@ export CUDA_MAKE_ARGS=${CUDA_MAKE_ARGS:-}
 export SYCL_MAKE_ARGS=${SYCL_MAKE_ARGS:-}
 
 SIF=${SIF:-$HOME/hpc-bwa-mem.sif}            # singularity (cluster)
-IMAGE=${IMAGE:-gapboy/hpc-bwa-mem:v1}               # docker (เครื่องตัวเอง)
+IMAGE=${IMAGE:-gapboy/hpc-bwa-mem:v1.1}               # docker (เครื่องตัวเอง)
 
 set -uo pipefail
 
