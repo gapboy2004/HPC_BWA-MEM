@@ -13,3 +13,4 @@
 *.o
 *.fasta
 results/
+.acpp_cache/

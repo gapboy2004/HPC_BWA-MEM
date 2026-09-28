@@ -4,12 +4,16 @@
 
 set -uo pipefail
 
-# script นี้ต้องรันใน container (บน host ให้ใช้: bash run_bench.slurm)
-if [ ! -f /.dockerenv ] && [ -z "${FORCE_HOST:-}" ]; then
-  echo "bench_inner.sh ต้องรันใน docker container"
+# script นี้ต้องรันใน container (docker หรือ singularity/apptainer)
+# บน host ให้ใช้: bash run_bench.slurm  หรือ  sbatch run_bench.slurm
+if [ ! -f /.dockerenv ] && [ -z "${SINGULARITY_CONTAINER:-}${APPTAINER_CONTAINER:-}" ] \
+   && [ -z "${FORCE_HOST:-}" ]; then
+  echo "bench_inner.sh ต้องรันใน container"
   echo "บน host ให้ใช้:  bash run_bench.slurm"
   exit 1
 fi
+
+export LC_ALL=C                       # ปิดคำเตือน setlocale ใน container
 # ==== ค่า default (ใช้ตอนเทสด้วยมือ; Slurm script จะส่งค่ามาทับ) ====
 : "${BACKENDS:=cuda sycl}"
 : "${GPU_COUNTS:=1}"
@@ -31,8 +35,18 @@ export CPATH=/usr/local/cuda/include:${CPATH:-}
 mkdir -p "$OUTDIR" .acpp_cache
 CSV=$OUTDIR/summary.csv
 
-# GPU ใน container ถูกเรียงเลขใหม่เป็น 0..N-1
-N_ALLOC=$(nvidia-smi -L | grep -c '^GPU')
+# ==== GPU ที่ใช้ได้ ====
+# singularity: ได้ CUDA_VISIBLE_DEVICES มาจาก Slurm (เฉพาะ GPU ที่ job ได้รับ)
+# docker:      ไม่มี CUDA_VISIBLE_DEVICES → นับจาก nvidia-smi (0..N-1)
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+  IFS=',' read -r -a GPU_IDS <<< "$CUDA_VISIBLE_DEVICES"
+else
+  n=$(nvidia-smi -L | grep -c '^GPU')
+  GPU_IDS=()
+  for ((i = 0; i < n; i++)); do GPU_IDS+=("$i"); done
+fi
+N_ALLOC=${#GPU_IDS[@]}
+echo "GPUs available: $N_ALLOC [${GPU_IDS[*]:-}]"
 
 # ==== ชื่อโปรแกรม = ค่า TARGET ใน Makefile (ตัวเดียวกับที่ make run ใช้) ====
 get_target() {
@@ -116,8 +130,8 @@ for b in $BACKENDS; do
       continue
     fi
 
-    # ให้โปรแกรมเห็นแค่ ngpu ตัวแรก: 0 / 0,1 / 0,1,2,3
-    export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((ngpu - 1)))
+    # ให้โปรแกรมเห็นแค่ ngpu ตัวแรกจาก GPU ที่ได้รับ
+    export CUDA_VISIBLE_DEVICES=$(IFS=','; echo "${GPU_IDS[*]:0:$ngpu}")
     export N_GPU=$ngpu                   # โปรแกรมอ่านจำนวน GPU จาก env นี้
     echo "=== $b  n_gpus=$ngpu  (CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES) ==="
 
