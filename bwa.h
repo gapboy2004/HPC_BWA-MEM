@@ -161,18 +161,18 @@ RightExtension make_right_extension(
 extern "C" {
 #endif
 
-void sw_batch(const char *h_reads, const int *h_qoff, const int *h_qlen, int qtot,
-              const char *h_refs,  const int *h_roff, const int *h_rlen, int rtot,
+void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size_t qtot,
+              const char *h_refs,  const size_t *h_roff, const int *h_rlen, size_t rtot,
               int n_tasks,
               int *score, int *qbeg, int *qend, int *rbeg, int *rend, char *cigar);
 
-void sw_multi_gpu(const char *h_reads, const int *h_qoff, const int *h_qlen, int qtot,
-                  const char *h_refs,  const int *h_roff, const int *h_rlen, int rtot,
+void sw_multi_gpu(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size_t qtot,
+                  const char *h_refs,  const size_t *h_roff, const int *h_rlen, size_t rtot,
                   int n_tasks,
                   int *score, int *qbeg, int *qend, int *rbeg, int *rend, char *cigar);
 
-void sycl_multi_gpu(const char*, const int*, const int*, int,
-                           const char*, const int*, const int*, int,
+void sycl_multi_gpu(const char*, const size_t*, const int*, size_t,
+                           const char*, const size_t*, const int*, size_t,
                            int, int*, int*, int*, int*, int*, char*);
 
 void dump_results(const char *path, int n_tasks,
@@ -186,7 +186,7 @@ void dump_results(const char *path, int n_tasks,
 
 #define MAX_QLEN 160
 #define MAX_RLEN 200
-#define MAX_CIGAR 256
+#define MAX_CIGAR 4
 #define BAND_W 100
 // #define MAX_TASKS 5000000
 #define N_STREAM 2      // 2 พอสำหรับ double buffering, 3-4 ช่วยได้อีกนิด

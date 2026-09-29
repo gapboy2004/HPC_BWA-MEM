@@ -248,8 +248,8 @@ __global__ void sw_batch_kernel(
 // ============================================================================
 //                             HOST: one GPU
 // ============================================================================
-void sw_batch(const char *h_reads, const int *h_qoff, const int *h_qlen, int qtot,
-              const char *h_refs, const int *h_roff, const int *h_rlen, int rtot,
+void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size_t qtot,
+              const char *h_refs, const size_t *h_roff, const int *h_rlen, size_t rtot,
               int n_tasks,
               int *score, int *qbeg, int *qend, int *rbeg, int *rend, char *cigar)
 {
@@ -300,14 +300,14 @@ void sw_batch(const char *h_reads, const int *h_qoff, const int *h_qlen, int qto
 
         int n = (start + CHUNK <= n_tasks) ? CHUNK : (n_tasks - start);
 
-        int qcur = 0, rcur = 0;
+        size_t qcur = 0, rcur = 0;
         for (int t = 0; t < n; ++t)
         {
             int g = start + t;
-            b->h_qoff[t] = qcur;
+            b->h_qoff[t] = (int)qcur; // offset ภายใน chunk ≤ CHUNK*MAX_QLEN พอดี int
             memcpy(b->h_reads + qcur, h_reads + h_qoff[g], h_qlen[g]);
             qcur += h_qlen[g];
-            b->h_roff[t] = rcur;
+            b->h_roff[t] = (int)rcur;
             memcpy(b->h_refs + rcur, h_refs + h_roff[g], h_rlen[g]);
             rcur += h_rlen[g];
         }
@@ -370,7 +370,8 @@ typedef struct
 {
     int dev, start, n;
     const char *h_reads, *h_refs;
-    const int *h_qoff, *h_qlen, *h_roff, *h_rlen;
+    const size_t *h_qoff, *h_roff;
+    const int *h_qlen, *h_rlen;
     int *score, *qbeg, *qend, *rbeg, *rend;
     char *cigar;
 } GpuJob;
@@ -395,8 +396,8 @@ static void *gpu_worker(void *arg)
     return NULL;
 }
 
-extern "C" void sw_multi_gpu(const char *h_reads, const int *h_qoff, const int *h_qlen, int qtot,
-                             const char *h_refs, const int *h_roff, const int *h_rlen, int rtot,
+extern "C" void sw_multi_gpu(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size_t qtot,
+                             const char *h_refs, const size_t *h_roff, const int *h_rlen, size_t rtot,
                              int n_tasks,
                              int *score, int *qbeg, int *qend, int *rbeg, int *rend, char *cigar)
 {

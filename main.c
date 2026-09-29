@@ -23,7 +23,8 @@
 KSEQ_INIT(gzFile, gzread)
 
 static char *h_reads, *h_refs;
-static int *h_qoff, *h_qlen, *h_roff, *h_rlen;     // ★ เป็น pointer
+static size_t *h_qoff, *h_roff;                    // ★ offset รวมทั้ง dataset อาจเกิน 2^31
+static int *h_qlen, *h_rlen;
 static int *score, *qbeg, *qend, *rbeg, *rend;     // ★ เป็น pointer
 static char *cigar;
 static int max_tasks;                               // ★ ค่า runtime
@@ -69,9 +70,9 @@ int main(int argc, char **argv)
     h_refs  = malloc((size_t)max_tasks * MAX_RLEN);
     cigar   = malloc((size_t)max_tasks * MAX_CIGAR);
 
-    h_qoff = malloc((size_t)max_tasks * sizeof(int));
+    h_qoff = malloc((size_t)max_tasks * sizeof(size_t));
     h_qlen = malloc((size_t)max_tasks * sizeof(int));
-    h_roff = malloc((size_t)max_tasks * sizeof(int));
+    h_roff = malloc((size_t)max_tasks * sizeof(size_t));
     h_rlen = malloc((size_t)max_tasks * sizeof(int));
     score  = malloc((size_t)max_tasks * sizeof(int));
     qbeg   = malloc((size_t)max_tasks * sizeof(int));
@@ -84,12 +85,12 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    gzFile fq = gzopen("test_prog/query_batch.fasta.gz", "r");
-    gzFile ft = gzopen("test_prog/target_batch.fasta.gz", "r");
+    // gzFile fq = gzopen("test_prog/query_batch.fasta.gz", "r");
+    // gzFile ft = gzopen("test_prog/target_batch.fasta.gz", "r");
     // gzFile fq = gzopen("own_query_batch.fasta", "r");
     // gzFile ft = gzopen("own_target_batch.fasta", "r");
-    // gzFile fq = gzopen("/home/gapboy/Desktop/real_query.fasta", "r");
-    // gzFile ft = gzopen("/home/gapboy/Desktop/real_target.fasta", "r");
+    gzFile fq = gzopen("/home/gapboy/Desktop/real_query_full.fasta", "r");
+    gzFile ft = gzopen("/home/gapboy/Desktop/real_target_full.fasta", "r");
     if (!fq || !ft)
     {
         fprintf(stderr, "open failed\n");
@@ -100,7 +101,8 @@ int main(int argc, char **argv)
     kseq_t *kt = kseq_init(ft);
 
     /* ---------- ขั้น 1: เก็บงาน (ไม่คำนวณ) ---------- */
-    int n = 0, qcur = 0, rcur = 0, skipped = 0;
+    int n = 0, skipped = 0;
+    size_t qcur = 0, rcur = 0;
 
     while (kseq_read(kq) >= 0 && kseq_read(kt) >= 0)
     {
@@ -128,9 +130,14 @@ int main(int argc, char **argv)
         n++;
     }
 
+    if (qcur < 0 || rcur < 0) {
+        fprintf(stderr, "ERROR: qcur/rcur offset overflow (n=%d). \n", n);
+        return 1;
+    }
+
     //encode reads and refs to 0-4
-    for (int x = 0; x < qcur; ++x) h_reads[x] = enc_b(h_reads[x]);
-    for (int x = 0; x < rcur; ++x) h_refs[x]  = enc_b(h_refs[x]);
+    for (size_t x = 0; x < qcur; ++x) h_reads[x] = enc_b(h_reads[x]);
+    for (size_t x = 0; x < rcur; ++x) h_refs[x]  = enc_b(h_refs[x]);
 
     kseq_destroy(kq);
     kseq_destroy(kt);

@@ -78,8 +78,8 @@ struct Lane
 };
 
 void sw_sycl(sycl::device dev, int n_tasks,
-             const char *h_reads, const int *h_qoff, const int *h_qlen,
-             const char *h_refs, const int *h_roff, const int *h_rlen,
+             const char *h_reads, const size_t *h_qoff, const int *h_qlen,
+             const char *h_refs, const size_t *h_roff, const int *h_rlen,
              int *score, int *qbeg, int *qend, int *rbeg, int *rend, char *cigar)
 {
     if (n_tasks <= 0)
@@ -126,14 +126,14 @@ void sw_sycl(sycl::device dev, int n_tasks,
         int n = DMIN(CHUNK, n_tasks - start);
 
         // pack + encode (เหมือนฝั่ง CUDA)
-        int qcur = 0, rcur = 0;
+        size_t qcur = 0, rcur = 0;
         for (int t = 0; t < n; ++t)
         {
             int g = start + t;
-            L.h_qoff[t] = qcur;
+            L.h_qoff[t] = (int)qcur; // offset ภายใน chunk ≤ CHUNK*MAX_QLEN พอดี int
             memcpy(L.h_reads + qcur, h_reads + h_qoff[g], h_qlen[g]);
             qcur += h_qlen[g];
-            L.h_roff[t] = rcur;
+            L.h_roff[t] = (int)rcur;
             memcpy(L.h_refs + rcur, h_refs + h_roff[g], h_rlen[g]);
             rcur += h_rlen[g];
         }
@@ -365,7 +365,8 @@ struct GpuJob
     sycl::device dev;
     int start, n;
     const char *h_reads, *h_refs;
-    const int *h_qoff, *h_qlen, *h_roff, *h_rlen;
+    const size_t *h_qoff, *h_roff;
+    const int *h_qlen, *h_rlen;
     int *score, *qbeg, *qend, *rbeg, *rend;
     char *cigar;
 };
@@ -384,10 +385,10 @@ static void *gpu_worker(void *arg)
     return NULL;
 }
 
-extern "C" void sycl_multi_gpu(const char *h_reads, const int *h_qoff,
-                               const int *h_qlen, int qtot,
-                               const char *h_refs, const int *h_roff,
-                               const int *h_rlen, int rtot,
+extern "C" void sycl_multi_gpu(const char *h_reads, const size_t *h_qoff,
+                               const int *h_qlen, size_t qtot,
+                               const char *h_refs, const size_t *h_roff,
+                               const int *h_rlen, size_t rtot,
                                int n_tasks,
                                int *score, int *qbeg, int *qend,
                                int *rbeg, int *rend, char *cigar)
