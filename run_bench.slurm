@@ -8,8 +8,9 @@
 
 # ==== ตั้งค่า (เปลี่ยนตอน submit ได้ด้วย --export=ALL,ชื่อ=ค่า) ====
 export BACKENDS=${BACKENDS:-"cuda sycl"}     # รันทั้งสองตัว หรือเลือกตัวเดียว
-export GPU_COUNTS=${GPU_COUNTS:-"1 2 4"}
-export SIZES=${SIZES:-"500000 1000000"}
+export GPU_COUNTS=${GPU_COUNTS:-"1"}
+# export GPU_COUNTS=${GPU_COUNTS:-"1 2 4"}
+export SIZES=${SIZES:-"10000000 30000000 50000000 70000000 100000000"}
 export REPEATS=${REPEATS:-3}
 export BUILD=${BUILD:-1}                     # 1 = build ใหม่ใน container ก่อนรัน
 # flag เพิ่มตอน build (ว่าง = build เหมือน make run ทุกอย่าง)
@@ -71,6 +72,7 @@ case $RUNTIME in
       -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
       -e ACPP_APPDB_DIR=/workspace/.acpp_cache \
       -v "$PWD":/workspace -w /workspace \
+      -v "/home/gapboy/Desktop":/data  \
       "$IMAGE" bash bench_inner.sh
     ;;
 

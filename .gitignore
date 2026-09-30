@@ -12,5 +12,11 @@
 *.o
 *.o
 *.fasta
+*.fa
+*.fna
+*.fasta.gz
+*.fa.gz
+*.fai
 results/
 .acpp_cache/
+
