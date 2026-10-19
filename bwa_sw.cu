@@ -321,6 +321,8 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
         
 
         int block = 128;
+        const char *eb = getenv("SW_BLOCK");
+        if (eb && atoi(eb) > 0) block = atoi(eb);
         int grid = (n + block - 1) / block;
         sw_batch_kernel<<<grid, block, 0, b->stream>>>(
             b->d_reads, b->d_qoff, b->d_qlen,

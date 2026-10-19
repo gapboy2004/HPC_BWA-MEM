@@ -154,6 +154,8 @@ void sw_sycl(sycl::device dev, int n_tasks,
         int nn = n;
 
         int block = 128;
+        const char *eb = getenv("SW_BLOCK");
+        if (eb && atoi(eb) > 0) block = atoi(eb);
         int grid = (n + block - 1) / block;
 
         L.q.parallel_for<sw_kernel>(
