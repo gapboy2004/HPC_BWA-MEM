@@ -19,6 +19,7 @@ export LC_ALL=C                       # ปิดคำเตือน setlocale
 : "${GPU_COUNTS:=1}"
 : "${SIZES:=500000 1000000}"
 : "${REPEATS:=1}"
+: "${SW_BLOCKS:=0}"                   # รายการ block size ที่จะทดสอบ (0 = default ของ kernel)
 : "${BUILD:=1}"
 : "${JOB_ID:=manual_$(date +%Y%m%d_%H%M%S)}"
 : "${OUTDIR:=results/$JOB_ID}"
@@ -93,6 +94,7 @@ fi
   echo "backends:     $BACKENDS"
   echo "gpu_counts:   $GPU_COUNTS"
   echo "sizes:        $SIZES"
+  echo "sw_blocks:    $SW_BLOCKS"
   echo "repeats:      $REPEATS"
   echo "make args:    cuda='${CUDA_MAKE_ARGS:-}' sycl='${SYCL_MAKE_ARGS:-}'"
   echo "date:         $(date '+%Y-%m-%d %H:%M:%S')"
@@ -104,7 +106,7 @@ fi
   acpp --version 2>/dev/null | head -1
 } > "$OUTDIR/env.txt" 2>&1
 
-echo "backend,node,n_gpus,gpus_used,max_tasks,tasks,total_sec,gcups,wall_sec,exit_code" > "$CSV"
+echo "backend,node,n_gpus,gpus_used,sw_block,max_tasks,tasks,total_sec,gcups,wall_sec,exit_code" > "$CSV"
 
 # ดึงค่าที่โปรแกรมพิมพ์เองจาก log
 #   "using 1 / 1 GPU"  "total: 0.273 sec  (20000 tasks, ...)"  "GCUPS: 0.31"
@@ -139,24 +141,27 @@ for b in $BACKENDS; do
     first_size=${SIZES%% *}
     $BIN "$first_size" > "$OUTDIR/${b}_g${ngpu}_warmup.log" 2>&1
 
-    for size in $SIZES; do
-      for r in $(seq 1 "$REPEATS"); do
-        log=$OUTDIR/${b}_g${ngpu}_n${size}_r${r}.log
-        echo "  N_GPU=$ngpu $BIN $size  repeat $r/$REPEATS"
+    for blk in $SW_BLOCKS; do
+      export SW_BLOCK=$blk                 # โปรแกรมอ่าน block size จาก env นี้ (ทีละค่า)
+      for size in $SIZES; do
+        for r in $(seq 1 "$REPEATS"); do
+          log=$OUTDIR/${b}_g${ngpu}_b${blk}_n${size}_r${r}.log
+          echo "  N_GPU=$ngpu SW_BLOCK=$blk $BIN $size  repeat $r/$REPEATS"
 
-        start=$(date +%s.%N)
-        $BIN "$size" > "$log" 2>&1
-        rc=$?
-        end=$(date +%s.%N)
+          start=$(date +%s.%N)
+          $BIN "$size" > "$log" 2>&1
+          rc=$?
+          end=$(date +%s.%N)
 
-        wall=$(awk -v s="$start" -v e="$end" 'BEGIN{printf "%.3f", e-s}')
-        IFS=, read -r used tasks sec g <<< "$(parse_log "$log")"
-        echo "$b,$NODE,$ngpu,$used,$size,$tasks,$sec,$g,$wall,$rc" >> "$CSV"
+          wall=$(awk -v s="$start" -v e="$end" 'BEGIN{printf "%.3f", e-s}')
+          IFS=, read -r used tasks sec g <<< "$(parse_log "$log")"
+          echo "$b,$NODE,$ngpu,$used,$blk,$size,$tasks,$sec,$g,$wall,$rc" >> "$CSV"
 
-        # เตือนถ้าโปรแกรมใช้ GPU ไม่ตรงกับที่สั่ง หรือได้ task น้อยกว่าที่ขอ
-        [ -n "$used" ] && [ "$used" != "$ngpu" ] && echo "  !! asked $ngpu GPU, program used $used"
-        [ -n "$tasks" ] && [ "$tasks" -lt "$size" ] && echo "  !! asked $size tasks, input has only $tasks"
-        [ "$rc" -ne 0 ] && echo "  !! exit code $rc, see $log"
+          # เตือนถ้าโปรแกรมใช้ GPU ไม่ตรงกับที่สั่ง หรือได้ task น้อยกว่าที่ขอ
+          [ -n "$used" ] && [ "$used" != "$ngpu" ] && echo "  !! asked $ngpu GPU, program used $used"
+          [ -n "$tasks" ] && [ "$tasks" -lt "$size" ] && echo "  !! asked $size tasks, input has only $tasks"
+          [ "$rc" -ne 0 ] && echo "  !! exit code $rc, see $log"
+        done
       done
     done
   done

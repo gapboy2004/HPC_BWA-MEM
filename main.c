@@ -89,8 +89,8 @@ int main(int argc, char **argv)
     // gzFile ft = gzopen("test_prog/target_batch.fasta.gz", "r");
     // gzFile fq = gzopen("own_query_batch.fasta", "r");
     // gzFile ft = gzopen("own_target_batch.fasta", "r");
-    gzFile fq = gzopen("/home/gapboy/Desktop/real_query_full.fasta", "r");
-    gzFile ft = gzopen("/home/gapboy/Desktop/real_target_full.fasta", "r");
+    gzFile fq = gzopen("/data/real_query_full.fasta", "r");
+    gzFile ft = gzopen("/data/real_target_full.fasta", "r");
     if (!fq || !ft)
     {
         fprintf(stderr, "open failed\n");
