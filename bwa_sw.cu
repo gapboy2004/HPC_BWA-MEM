@@ -81,8 +81,8 @@ __global__ void sw_batch_kernel(
     const unsigned char *target = (const unsigned char *)(refs + r_off[tid]);
     int qlen = q_len[tid];
     int tlen = r_len[tid];
-    int h0 = h0_arr ? h0_arr[tid] : H0_DEFAULT;
-    int w = w_arr ? w_arr[tid] : W_DEFAULT;
+    int h0 = H0_DEFAULT;
+    int w = W_DEFAULT;
 
     if (qlen <= 0 || tlen <= 0 || qlen > MAX_QLEN)
     {
