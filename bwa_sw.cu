@@ -38,7 +38,7 @@
 #define DMIN(a, b) ((a) < (b) ? (a) : (b))
 #define IABS(x) ((x) < 0 ? -(x) : (x))
 
-#define COUNT_CELLS
+// #define COUNT_CELLS
 
 #define CUDA_CHECK(call)                                                  \
     do                                                                    \

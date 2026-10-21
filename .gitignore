@@ -20,3 +20,4 @@
 results/
 .acpp_cache/
 
+*.ncu-rep

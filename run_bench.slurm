@@ -12,12 +12,12 @@ export BACKENDS=${BACKENDS:-"cuda sycl"}     # รันทั้งสองต
 export GPU_COUNTS=${GPU_COUNTS:-"1"}
 # export GPU_COUNTS=${GPU_COUNTS:-"1 2 4"}   # ใช้เมื่อได้ QOS ที่ให้ 4 GPU (แก้ --gres ด้วย)
 
-# export SIZES=${SIZES:-"10000000 30000000 50000000 70000000 100000000"}
-export SIZES=${SIZES:-"10000000"}
+export SIZES=${SIZES:-"10000000 30000000 50000000 70000000 100000000"}
+# export SIZES=${SIZES:-"10000000"}
 
 # block size ที่จะทดสอบ (วนทีละค่า แล้วส่งให้โปรแกรมเป็น SW_BLOCK)
 # 0 = ใช้ default (128) ของ kernel, >0 = block size ใหม่
-export SW_BLOCKS=${SW_BLOCKS:-"32 64 128 256"}
+export SW_BLOCKS=${SW_BLOCKS:-"128"}
 
 export REPEATS=${REPEATS:-3}
 export BUILD=${BUILD:-1}                     # 1 = build ใหม่ใน container ก่อนรัน

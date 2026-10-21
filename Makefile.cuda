@@ -2,9 +2,13 @@ CC      = gcc
 NVCC    = nvcc
 
 #CFLAGS  = -Wall -Wextra -O2 -g -std=c11
-CFLAGS = -Wall -Wextra -O2 -g -std=c11 -I$(CUDA_HOME)/include
+CFLAGS = -Wall -Wextra -O2 -g -I$(CUDA_HOME)/include
 #NVFLAGS = -O2 -g
-NVFLAGS = -O2 -g \
+#NVFLAGS = -O2 -g \
+#  -gencode arch=compute_70,code=sm_70 \
+#  -gencode arch=compute_86,code=sm_86
+
+NVFLAGS = -O2 -lineinfo -Xcompiler -O2 \
   -gencode arch=compute_70,code=sm_70 \
   -gencode arch=compute_86,code=sm_86
 
@@ -25,7 +29,7 @@ libbwa.a: $(OBJS)
 run: $(TARGET)
 	./$(TARGET)
 
-$(TARGET): main.c $(OBJS)
+$(TARGET): main.o $(OBJS)
 	$(NVCC) -o $@ $^ -lz
 
 %.o: %.c bwa.h
@@ -35,4 +39,4 @@ $(TARGET): main.c $(OBJS)
 	$(NVCC) $(NVFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) libbwa.a $(TARGET)
+	rm -f $(OBJS) main.o libbwa.a $(TARGET)

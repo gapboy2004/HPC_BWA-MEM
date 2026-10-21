@@ -65,7 +65,7 @@ int main(int argc, char **argv)
     if (argc > 1 && atoi(argv[1]) > 0) max_tasks = atoi(argv[1]);
     printf("max_tasks = %d\n", max_tasks);
 
-
+    double t0 = now_sec();
     h_reads = malloc((size_t)max_tasks * MAX_QLEN);
     h_refs  = malloc((size_t)max_tasks * MAX_RLEN);
     cigar   = malloc((size_t)max_tasks * MAX_CIGAR);
@@ -80,6 +80,8 @@ int main(int argc, char **argv)
     rbeg   = malloc((size_t)max_tasks * sizeof(int));
     rend   = malloc((size_t)max_tasks * sizeof(int));
 
+    double t_alloc = now_sec();
+
     if (!h_reads || !h_refs || !h_qoff || !score) {
         fprintf(stderr, "malloc failed (max_tasks=%d)\n", max_tasks);
         return 1;
@@ -87,10 +89,11 @@ int main(int argc, char **argv)
 
     // gzFile fq = gzopen("test_prog/query_batch.fasta.gz", "r");
     // gzFile ft = gzopen("test_prog/target_batch.fasta.gz", "r");
-    // gzFile fq = gzopen("own_query_batch.fasta", "r");
-    // gzFile ft = gzopen("own_target_batch.fasta", "r");
-    gzFile fq = gzopen("/data/real_query_full.fasta", "r");
-    gzFile ft = gzopen("/data/real_target_full.fasta", "r");
+
+    gzFile fq = gzopen("/home/gapboy/Desktop/real_query_full.fasta", "r");
+    gzFile ft = gzopen("/home/gapboy/Desktop/real_target_full.fasta", "r");
+
+
     if (!fq || !ft)
     {
         fprintf(stderr, "open failed\n");
@@ -130,6 +133,8 @@ int main(int argc, char **argv)
         n++;
     }
 
+    double t_load = now_sec();
+
     if (qcur < 0 || rcur < 0) {
         fprintf(stderr, "ERROR: qcur/rcur offset overflow (n=%d). \n", n);
         return 1;
@@ -138,6 +143,8 @@ int main(int argc, char **argv)
     //encode reads and refs to 0-4
     for (size_t x = 0; x < qcur; ++x) h_reads[x] = enc_b(h_reads[x]);
     for (size_t x = 0; x < rcur; ++x) h_refs[x]  = enc_b(h_refs[x]);
+
+    double t_enc = now_sec();
 
     kseq_destroy(kq);
     kseq_destroy(kt);
@@ -152,31 +159,26 @@ int main(int argc, char **argv)
     }
 
     /* ---------- ขั้น 2: คำนวณทีเดียวทั้งหมด ---------- */
-
-    double t0 = now_sec();
-    // sw_multi_gpu(h_reads, h_qoff, h_qlen, qcur,
-    //              h_refs, h_roff, h_rlen, rcur,
-    //              n, score, qbeg, qend, rbeg, rend, cigar);
-
-    // sycl_multi_gpu(h_reads, h_qoff, h_qlen, qcur,
-    //                h_refs, h_roff, h_rlen, rcur,
-    //                n, score, qbeg, qend, rbeg, rend, cigar);
-
     run_multi_gpu(h_reads, h_qoff, h_qlen, qcur,
               h_refs, h_roff, h_rlen, rcur,
               n, score, qbeg, qend, rbeg, rend, cigar);
 
-    unsigned long long total_cells = 0;
-    for (int i = 0; i < n; ++i)
-        total_cells += (unsigned)qbeg[i];
-    printf("total cells = %llu\n", total_cells);
+    // unsigned long long total_cells = 0;
+    // for (int i = 0; i < n; ++i)
+    //     total_cells += (unsigned)qbeg[i];
+    // printf("total cells = %llu\n", total_cells);
     /* ---------- ---------------------------------------------- */
-    double t1 = now_sec();
-    printf("total: %.3f sec  (%d tasks, %.0f tasks/sec)\n",
-           t1 - t0, n, n / (t1 - t0));
+    // double t1 = now_sec();
+    // printf("total: %.3f sec  (%d tasks, %.0f tasks/sec)\n",
+    //        t1 - t0, n, n / (t1 - t0));
 
-    float GCUPS = total_cells / ((t1 - t0) * 1e9);
-    printf("GCUPS: %.2f\n", GCUPS);
+    double t_gpu = now_sec();
+
+    fprintf(stderr, "alloc %.3f  load %.3f  encode %.3f  gpu %.3f\n",
+        t_alloc - t0, t_load - t_alloc, t_enc - t_load, t_gpu - t_enc);
+
+    // float GCUPS = total_cells / ((t1 - t0) * 1e9);
+    // printf("GCUPS: %.2f\n", GCUPS);
     
     /* ---------- ขั้น 3: หา best จากผลลัพธ์ ---------- */
     // int best_id = 0;
