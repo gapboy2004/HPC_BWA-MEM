@@ -106,6 +106,8 @@ int main(int argc, char **argv)
     /* ---------- ขั้น 1: เก็บงาน (ไม่คำนวณ) ---------- */
     int n = 0, skipped = 0;
     size_t qcur = 0, rcur = 0;
+    const size_t cap_q = (size_t)max_tasks * MAX_QLEN;
+    const size_t cap_r = (size_t)max_tasks * MAX_RLEN;
 
     while (kseq_read(kq) >= 0 && kseq_read(kt) >= 0)
     {
@@ -118,6 +120,13 @@ int main(int argc, char **argv)
         {
             skipped++;
             continue;
+        }
+
+         if (qcur + (size_t)ql > cap_q || rcur + (size_t)rl > cap_r)
+        {
+            fprintf(stderr, "ERROR: buffer full at task %d (qcur=%zu rcur=%zu)\n",
+                    n, qcur, rcur);
+            break;
         }
 
         h_qoff[n] = qcur;
@@ -134,12 +143,7 @@ int main(int argc, char **argv)
     }
 
     double t_load = now_sec();
-
-    if (qcur < 0 || rcur < 0) {
-        fprintf(stderr, "ERROR: qcur/rcur offset overflow (n=%d). \n", n);
-        return 1;
-    }
-
+    
     //encode reads and refs to 0-4
     for (size_t x = 0; x < qcur; ++x) h_reads[x] = enc_b(h_reads[x]);
     for (size_t x = 0; x < rcur; ++x) h_refs[x]  = enc_b(h_refs[x]);
