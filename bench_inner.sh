@@ -14,6 +14,13 @@ if [ ! -f /.dockerenv ] && [ -z "${SINGULARITY_CONTAINER:-}${APPTAINER_CONTAINER
 fi
 
 export LC_ALL=C                       # ปิดคำเตือน setlocale ใน container
+
+# บาง cluster (เช่น br1) ตั้ง TMPDIR=/scratch/slurm/... ซึ่งไม่ได้ bind เข้า container
+# nvcc / acpp เขียนไฟล์ชั่วคราวไม่ได้ → ใช้ /tmp ใน container แทน
+if [ -n "${TMPDIR:-}" ] && ! { [ -d "$TMPDIR" ] && [ -w "$TMPDIR" ]; }; then
+  echo "TMPDIR=$TMPDIR not writable in container → using /tmp"
+  export TMPDIR=/tmp
+fi
 # ==== ค่า default (ใช้ตอนเทสด้วยมือ; Slurm script จะส่งค่ามาทับ) ====
 : "${BACKENDS:=cuda sycl}"
 : "${GPU_COUNTS:=1}"

@@ -9,11 +9,11 @@
 
 # ==== ตั้งค่า (เปลี่ยนตอน submit ได้ด้วย --export=ALL,ชื่อ=ค่า) ====
 export BACKENDS=${BACKENDS:-"cuda sycl"}     # รันทั้งสองตัว หรือเลือกตัวเดียว
-export GPU_COUNTS=${GPU_COUNTS:-"1"}
-# export GPU_COUNTS=${GPU_COUNTS:-"1 2 4"}   # ใช้เมื่อได้ QOS ที่ให้ 4 GPU (แก้ --gres ด้วย)
+# export GPU_COUNTS=${GPU_COUNTS:-"1"}
+export GPU_COUNTS=${GPU_COUNTS:-"1 2 4"}   # ใช้เมื่อได้ QOS ที่ให้ 4 GPU (แก้ --gres ด้วย)
 
 export SIZES=${SIZES:-"10000000 30000000 50000000 70000000 100000000"}
-# export SIZES=${SIZES:-"10000000"}
+#export SIZES=${SIZES:-"10000000"}
 
 # block size ที่จะทดสอบ (วนทีละค่า แล้วส่งให้โปรแกรมเป็น SW_BLOCK)
 # 0 = ใช้ default (128) ของ kernel, >0 = block size ใหม่
@@ -30,12 +30,12 @@ IMAGE=${IMAGE:-gapboy/hpc-bwa-mem:v1.1}      # docker (เครื่องต�
 
 # โฟลเดอร์ข้อมูล input → เห็นใน container ที่ /data
 # เครื่องตัวเองใช้ Desktop, บน cluster ส่ง DATA_DIR=/path/ข้อมูล มาเอง
-DATA_DIR=${DATA_DIR:-/home/gapboy/Desktop}
+DATA_DIR=${DATA_DIR:-/home/g6917550019/HPC_BWA-MEM}
 
 set -uo pipefail
 
 if [ -n "${SLURM_JOB_ID:-}" ]; then
-  cd "$SLURM_SUBMIT_DIR"
+  cd "${PROJECT_DIR:-$HOME/HPC_BWA-MEM}"
   RUN_ID=$SLURM_JOB_ID
 else
   RUN_ID=manual_$(date +%Y%m%d_%H%M%S)
