@@ -43,6 +43,11 @@ export CPATH=/usr/local/cuda/include:${CPATH:-}
 mkdir -p "$OUTDIR" .acpp_cache
 CSV=$OUTDIR/summary.csv
 
+# printf ที่เขียนลงไฟล์จะถูกเก็บใน buffer จนโปรแกรมจบ → log ว่างระหว่างรัน
+# stdbuf บังคับให้เขียนทีละบรรทัด จะได้ tail -f ดูความคืบหน้าได้
+RUN=""
+command -v stdbuf >/dev/null 2>&1 && RUN="stdbuf -oL -eL"
+
 # ==== GPU ที่ใช้ได้ ====
 # singularity: ได้ CUDA_VISIBLE_DEVICES มาจาก Slurm (เฉพาะ GPU ที่ job ได้รับ)
 # docker:      ไม่มี CUDA_VISIBLE_DEVICES → นับจาก nvidia-smi (0..N-1)
@@ -113,16 +118,18 @@ fi
   acpp --version 2>/dev/null | head -1
 } > "$OUTDIR/env.txt" 2>&1
 
-echo "backend,node,n_gpus,gpus_used,sw_block,max_tasks,tasks,total_sec,gcups,wall_sec,exit_code" > "$CSV"
+echo "backend,node,n_gpus,gpus_used,sw_block,max_tasks,tasks,skipped,alloc_sec,load_sec,encode_sec,gpu_sec,wall_sec,exit_code" > "$CSV"
 
-# ดึงค่าที่โปรแกรมพิมพ์เองจาก log
-#   "using 1 / 1 GPU"  "total: 0.273 sec  (20000 tasks, ...)"  "GCUPS: 0.31"
+# ดึงค่าที่โปรแกรมพิมพ์เองจาก log (รูปแบบ output ปัจจุบันของ main.c):
+#   "packed 30000000 tasks (skipped 1224)"
+#   "using 2 / 2 GPU"
+#   "alloc 0.000  load 12.178  encode 5.262  gpu 15.436"     (stderr)
 parse_log() {
   awk '
-    /^using [0-9]+ \/ [0-9]+ GPU/ { used=$2 }
-    /^total: /                     { sec=$2; t=$4; gsub(/\(/,"",t); tasks=t }
-    /^GCUPS:/                      { g=$2 }
-    END { printf "%s,%s,%s,%s", used, tasks, sec, g }
+    /^packed [0-9]+ tasks/         { tasks=$2; sk=$5; gsub(/[^0-9]/,"",sk) }
+    /^using [0-9]+ \/ [0-9]+ GPU/  { used=$2 }
+    /^alloc [0-9.]+ +load /        { a=$2; l=$4; e=$6; g=$8 }
+    END { printf "%s,%s,%s,%s,%s,%s,%s", used, tasks, sk, a, l, e, g }
   ' "$1"
 }
 
@@ -146,7 +153,8 @@ for b in $BACKENDS; do
 
     # warm-up ไม่นับผล
     first_size=${SIZES%% *}
-    $BIN "$first_size" > "$OUTDIR/${b}_g${ngpu}_warmup.log" 2>&1
+    echo "  warm-up: N_GPU=$ngpu $BIN $first_size"
+    $RUN $BIN "$first_size" > "$OUTDIR/${b}_g${ngpu}_warmup.log" 2>&1
 
     for blk in $SW_BLOCKS; do
       export SW_BLOCK=$blk                 # โปรแกรมอ่าน block size จาก env นี้ (ทีละค่า)
@@ -156,17 +164,18 @@ for b in $BACKENDS; do
           echo "  N_GPU=$ngpu SW_BLOCK=$blk $BIN $size  repeat $r/$REPEATS"
 
           start=$(date +%s.%N)
-          $BIN "$size" > "$log" 2>&1
+          $RUN $BIN "$size" > "$log" 2>&1
           rc=$?
           end=$(date +%s.%N)
 
           wall=$(awk -v s="$start" -v e="$end" 'BEGIN{printf "%.3f", e-s}')
-          IFS=, read -r used tasks sec g <<< "$(parse_log "$log")"
-          echo "$b,$NODE,$ngpu,$used,$blk,$size,$tasks,$sec,$g,$wall,$rc" >> "$CSV"
+          IFS=, read -r used tasks skipped t_alloc t_load t_enc t_gpu <<< "$(parse_log "$log")"
+          echo "$b,$NODE,$ngpu,$used,$blk,$size,$tasks,$skipped,$t_alloc,$t_load,$t_enc,$t_gpu,$wall,$rc" >> "$CSV"
 
           # เตือนถ้าโปรแกรมใช้ GPU ไม่ตรงกับที่สั่ง หรือได้ task น้อยกว่าที่ขอ
           [ -n "$used" ] && [ "$used" != "$ngpu" ] && echo "  !! asked $ngpu GPU, program used $used"
           [ -n "$tasks" ] && [ "$tasks" -lt "$size" ] && echo "  !! asked $size tasks, input has only $tasks"
+          [ -n "$t_gpu" ] && echo "     load ${t_load}s  encode ${t_enc}s  gpu ${t_gpu}s  wall ${wall}s"
           [ "$rc" -ne 0 ] && echo "  !! exit code $rc, see $log"
         done
       done
