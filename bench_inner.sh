@@ -27,6 +27,8 @@ fi
 : "${SIZES:=500000 1000000}"
 : "${REPEATS:=1}"
 : "${SW_BLOCKS:=0}"                   # รายการ block size ที่จะทดสอบ (0 = default ของ kernel)
+: "${SW_CHUNKS:=0}"                   # รายการ chunk size ที่จะทดสอบ (0 = default ของโปรแกรม)
+: "${CHUNK_VAR:=SW_CHUNK}"            # ชื่อ env ที่โปรแกรมอ่านค่า chunk
 : "${BUILD:=1}"
 : "${JOB_ID:=manual_$(date +%Y%m%d_%H%M%S)}"
 : "${OUTDIR:=results/$JOB_ID}"
@@ -107,6 +109,7 @@ fi
   echo "gpu_counts:   $GPU_COUNTS"
   echo "sizes:        $SIZES"
   echo "sw_blocks:    $SW_BLOCKS"
+  echo "sw_chunks:    $SW_CHUNKS  (env $CHUNK_VAR)"
   echo "repeats:      $REPEATS"
   echo "make args:    cuda='${CUDA_MAKE_ARGS:-}' sycl='${SYCL_MAKE_ARGS:-}'"
   echo "date:         $(date '+%Y-%m-%d %H:%M:%S')"
@@ -118,7 +121,7 @@ fi
   acpp --version 2>/dev/null | head -1
 } > "$OUTDIR/env.txt" 2>&1
 
-echo "backend,node,n_gpus,gpus_used,sw_block,max_tasks,tasks,skipped,alloc_sec,load_sec,encode_sec,gpu_sec,wall_sec,exit_code" > "$CSV"
+echo "backend,node,n_gpus,gpus_used,sw_block,sw_chunk,max_tasks,tasks,skipped,alloc_sec,load_sec,encode_sec,gpu_sec,wall_sec,exit_code" > "$CSV"
 
 # ดึงค่าที่โปรแกรมพิมพ์เองจาก log (รูปแบบ output ปัจจุบันของ main.c):
 #   "packed 30000000 tasks (skipped 1224)"
@@ -151,17 +154,21 @@ for b in $BACKENDS; do
     export N_GPU=$ngpu                   # โปรแกรมอ่านจำนวน GPU จาก env นี้
     echo "=== $b  n_gpus=$ngpu  (CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES) ==="
 
-    # warm-up ไม่นับผล
-    first_size=${SIZES%% *}
-    echo "  warm-up: N_GPU=$ngpu $BIN $first_size"
-    $RUN $BIN "$first_size" > "$OUTDIR/${b}_g${ngpu}_warmup.log" 2>&1
+    # warm-up ไม่นับผล ด้วย size ที่ใหญ่ที่สุด
+    # → อ่านไฟล์ input ทุกส่วนที่ต้องใช้เข้า page cache ก่อนเริ่มวัด
+    #   (ถ้าใช้ size เล็กสุด รอบแรกของทุก size ใหม่จะช้าเพราะต้องอ่านส่วนที่เพิ่มจากเครือข่าย)
+    warm_size=$(printf '%s\n' $SIZES | sort -n | tail -1)
+    echo "  warm-up: N_GPU=$ngpu $BIN $warm_size"
+    $RUN $BIN "$warm_size" > "$OUTDIR/${b}_g${ngpu}_warmup.log" 2>&1
 
     for blk in $SW_BLOCKS; do
       export SW_BLOCK=$blk                 # โปรแกรมอ่าน block size จาก env นี้ (ทีละค่า)
+      for chk in $SW_CHUNKS; do
+      export "$CHUNK_VAR=$chk"             # โปรแกรมอ่าน chunk size จาก env นี้ (ทีละค่า)
       for size in $SIZES; do
         for r in $(seq 1 "$REPEATS"); do
-          log=$OUTDIR/${b}_g${ngpu}_b${blk}_n${size}_r${r}.log
-          echo "  N_GPU=$ngpu SW_BLOCK=$blk $BIN $size  repeat $r/$REPEATS"
+          log=$OUTDIR/${b}_g${ngpu}_b${blk}_c${chk}_n${size}_r${r}.log
+          echo "  N_GPU=$ngpu SW_BLOCK=$blk $CHUNK_VAR=$chk $BIN $size  repeat $r/$REPEATS"
 
           start=$(date +%s.%N)
           $RUN $BIN "$size" > "$log" 2>&1
@@ -170,7 +177,7 @@ for b in $BACKENDS; do
 
           wall=$(awk -v s="$start" -v e="$end" 'BEGIN{printf "%.3f", e-s}')
           IFS=, read -r used tasks skipped t_alloc t_load t_enc t_gpu <<< "$(parse_log "$log")"
-          echo "$b,$NODE,$ngpu,$used,$blk,$size,$tasks,$skipped,$t_alloc,$t_load,$t_enc,$t_gpu,$wall,$rc" >> "$CSV"
+          echo "$b,$NODE,$ngpu,$used,$blk,$chk,$size,$tasks,$skipped,$t_alloc,$t_load,$t_enc,$t_gpu,$wall,$rc" >> "$CSV"
 
           # เตือนถ้าโปรแกรมใช้ GPU ไม่ตรงกับที่สั่ง หรือได้ task น้อยกว่าที่ขอ
           [ -n "$used" ] && [ "$used" != "$ngpu" ] && echo "  !! asked $ngpu GPU, program used $used"
@@ -178,6 +185,7 @@ for b in $BACKENDS; do
           [ -n "$t_gpu" ] && echo "     load ${t_load}s  encode ${t_enc}s  gpu ${t_gpu}s  wall ${wall}s"
           [ "$rc" -ne 0 ] && echo "  !! exit code $rc, see $log"
         done
+      done
       done
     done
   done
