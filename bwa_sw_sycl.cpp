@@ -119,6 +119,15 @@ void sw_sycl(sycl::device dev, int n_tasks,
     if (CHUNK > n_tasks)
         CHUNK = n_tasks;
 
+    // SW_SERIAL_KERNEL=1 (default): kernel ของ chunk ถัดไปรอ kernel ก่อนหน้าจบ
+    // SW_SERIAL_KERNEL=0: ปล่อย kernel 2 lane รันซ้อนกัน  (เหมือนฝั่ง CUDA)
+    int serial_kernel = 1;
+    const char *env_ser = getenv("SW_SERIAL_KERNEL");
+    if (env_ser)
+        serial_kernel = atoi(env_ser) != 0;
+    sycl::event prev_kev;
+    bool has_prev = false;
+
     std::vector<Lane> lanes(N_LANE);
     for (auto &L : lanes)
     {
@@ -196,8 +205,11 @@ void sw_sycl(sycl::device dev, int n_tasks,
         if (eb && atoi(eb) > 0) block = atoi(eb);
         int grid = (n + block - 1) / block;
 
-        L.q.parallel_for<sw_kernel>(
-            sycl::nd_range<1>{(size_t)grid * block, (size_t)block},
+        std::vector<sycl::event> deps;
+        if (serial_kernel && has_prev) // รอ kernel ของ chunk ก่อนหน้า (อีก lane)
+            deps.push_back(prev_kev);
+        sycl::event kev = L.q.parallel_for<sw_kernel>(
+            sycl::nd_range<1>{(size_t)grid * block, (size_t)block}, deps,
             [=](sycl::nd_item<1> it)
             {
                 int tid = (int)it.get_global_id(0);
@@ -366,6 +378,9 @@ void sw_sycl(sycl::device dev, int n_tasks,
                 (void)max_off;
             });
 
+        prev_kev = kev;
+        has_prev = true;
+
         // D2H ลง pinned staging (เหมือนฝั่ง CUDA)
         L.q.memcpy(L.h_score, L.d_score, n * sizeof(int));
         L.q.memcpy(L.h_qbeg, L.d_qbeg, n * sizeof(int));
@@ -470,6 +485,10 @@ extern "C" void sycl_multi_gpu(const char *h_reads, const size_t *h_qoff,
         n_gpu = avail;
     }
     printf("using %d / %d GPU\n", n_gpu, avail);
+    {
+        const char *es = getenv("SW_SERIAL_KERNEL");
+        printf("Serial kernel: %d\n", es ? (atoi(es) != 0) : 1);
+    }
     for (int d = 0; d < n_gpu; ++d)
         printf("  - %s\n", gpus[d].get_info<sycl::info::device::name>().c_str());
 

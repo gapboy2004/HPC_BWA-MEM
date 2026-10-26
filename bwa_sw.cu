@@ -298,6 +298,17 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
     if (CHUNK > n_tasks)
         CHUNK = n_tasks;
 
+    // SW_SERIAL_KERNEL=1 (default): kernel ของ chunk ถัดไปรอ kernel ก่อนหน้าจบ
+    //   (pack/H2D/D2H ยังซ้อนกับ kernel ได้ แต่ kernel ไม่ซ้อนกันเอง)
+    // SW_SERIAL_KERNEL=0: ปล่อย kernel 2 lane รันซ้อนกันบน GPU
+    // nsys เห็นว่า kernel ซ้อนกันทำให้ thread ต่อ SM เพิ่มแล้วช้าลงรวม ๆ
+    int serial_kernel = 1;
+    const char *env_ser = getenv("SW_SERIAL_KERNEL");
+    if (env_ser)
+        serial_kernel = atoi(env_ser) != 0;
+    cudaEvent_t kdone[N_STREAM];
+    int prev_s = -1;
+
     StreamBuf buf[N_STREAM];
     PinnedIO io[N_STREAM];
 
@@ -306,6 +317,7 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
         StreamBuf *b = &buf[s];
         PinnedIO *p = &io[s];
         CUDA_CHECK(cudaStreamCreate(&b->stream));
+        CUDA_CHECK(cudaEventCreateWithFlags(&kdone[s], cudaEventDisableTiming));
 
         CUDA_CHECK(cudaMallocHost((void **)&p->h_qlen, CHUNK * sizeof(int)));
         CUDA_CHECK(cudaMallocHost((void **)&p->h_rlen, CHUNK * sizeof(int)));
@@ -376,6 +388,8 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
         if (eb && atoi(eb) > 0) block = atoi(eb);
 
         int grid = (n + block - 1) / block;
+        if (serial_kernel && prev_s >= 0) // รอ kernel ของ chunk ก่อนหน้า (อีก lane)
+            CUDA_CHECK(cudaStreamWaitEvent(b->stream, kdone[prev_s], 0));
         sw_batch_kernel<<<grid, block, 0, b->stream>>>(
             b->d_reads, b->d_qoff, b->d_qlen,
             b->d_refs, b->d_roff, b->d_rlen,
@@ -383,6 +397,8 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
             b->d_score, b->d_qbeg, b->d_qend, b->d_rbeg, b->d_rend, b->d_cigar,
             nullptr, nullptr); // h0_arr, w_arr — ใส่ของจริงเมื่อ trace พร้อม
         CUDA_CHECK(cudaGetLastError());
+        CUDA_CHECK(cudaEventRecord(kdone[s], b->stream));
+        prev_s = s;
 
         // D2H ลง pinned staging -> async จริง host ไม่ค้าง
         CUDA_CHECK(cudaMemcpyAsync(p->h_score, b->d_score, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
@@ -410,6 +426,7 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
         cudaFreeHost(p->h_rbeg);
         cudaFreeHost(p->h_rend);
         cudaFreeHost(p->h_cigar);
+        cudaEventDestroy(kdone[s]);
         cudaStreamDestroy(b->stream);
         cudaFree(b->d_reads);
         cudaFree(b->d_refs);
@@ -481,6 +498,10 @@ extern "C" void sw_multi_gpu(const char *h_reads, const size_t *h_qoff, const in
     if (eb && atoi(eb) > 0) block = atoi(eb);
 
     printf("Block size: %d\n", block);
+    {
+        const char *es = getenv("SW_SERIAL_KERNEL");
+        printf("Serial kernel: %d\n", es ? (atoi(es) != 0) : 1);
+    }
     
     int n_gpu = 2;
     const char *env_gpu = getenv("N_GPU"); // รัน 1/2/4 ได้โดยไม่ต้อง recompile
