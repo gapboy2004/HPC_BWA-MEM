@@ -90,8 +90,13 @@ int main(int argc, char **argv)
     // gzFile fq = gzopen("test_prog/query_batch.fasta.gz", "r");
     // gzFile ft = gzopen("test_prog/target_batch.fasta.gz", "r");
 
-    gzFile fq = gzopen("/data/real_query_full.fasta", "r");
-    gzFile ft = gzopen("/data/real_target_full.fasta", "r");
+        const char *qpath = getenv("QUERY_FASTA");
+    const char *tpath = getenv("TARGET_FASTA");
+    if (!qpath) qpath = "/data/real_query_full.fasta";
+    if (!tpath) tpath = "/data/real_target_full.fasta";
+
+        gzFile fq = gzopen("/data/real_query_full.fasta", "r");
+        gzFile ft = gzopen("/data/real_target_full.fasta", "r");
 
 
     if (!fq || !ft)
