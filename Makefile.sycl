@@ -1,6 +1,6 @@
 # ==== Makefile สำหรับ SYCL version ====
-# ใช้:  make                          → build sw_sycl (generic, รันได้ทั้ง NVIDIA/AMD)
-#       make ACPP_TARGETS=cuda:sm_86  → build เฉพาะ GPU (ไม่มี JIT ตอนรัน)
+# ใช้:  make                          -> build sw_sycl (generic, รันได้ทั้ง NVIDIA/AMD)
+#       make ACPP_TARGETS=cuda:sm_86  -> build เฉพาะ GPU (ไม่มี JIT ตอนรัน)
 #       make run / clean / rebuild
 
 # ---- compiler ----
@@ -10,17 +10,17 @@ ACPP = acpp
 # ---- flags ----
 ACPP_TARGETS ?= generic
 ACPP_FLAGS    = -O3 --acpp-targets=$(ACPP_TARGETS)
-CFLAGS        = -O2 -DUSE_SYCL          # ★ ให้ main.c เลือก SYCL
+# host code — ชุดเดียวกับ Makefile.cuda ทุกตัว ต่างกันแค่ -DUSE_SYCL
+HOST_CFLAGS   = -Wall -Wextra -O2 -g
+CFLAGS        = $(HOST_CFLAGS) -DUSE_SYCL     # ★ ให้ main.c เลือก SYCL
 LDLIBS        = -lz
 
-# ---- ไฟล์ ----
+# ---- ไฟล์ (★ object ชื่อไม่ซ้ำกับฝั่ง CUDA) ----
 TARGET   = sw_sycl
-C_SRC    = main.c
-CPP_SRC  = bwa_sw_sycl.cpp
-C_OBJ    = $(C_SRC:.c=.o)
-CPP_OBJ  = $(CPP_SRC:.cpp=.o)
-KSW_OBJ  = ksw.o
-OBJS     = $(C_OBJ) $(CPP_OBJ) $(KSW_OBJ)
+MAIN_OBJ = main_sycl.o
+CPP_OBJ  = bwa_sw_sycl.o
+KSW_OBJ  = ksw_sycl.o
+OBJS     = $(MAIN_OBJ) $(CPP_OBJ) $(KSW_OBJ)
 
 all: $(TARGET)
 
@@ -29,16 +29,16 @@ $(TARGET): $(OBJS)
 	$(ACPP) $(OBJS) $(LDLIBS) -o $(TARGET)
 
 # ---- compile main.c ด้วย gcc ----
-$(C_OBJ): $(C_SRC)
-	$(CC) $(CFLAGS) -c $(C_SRC) -o $(C_OBJ)
+$(MAIN_OBJ): main.c bwa.h
+	$(CC) $(CFLAGS) -c main.c -o $(MAIN_OBJ)
 
 # ---- compile ksw.c (CPU reference จาก BWA) ----
 $(KSW_OBJ): ksw.c ksw.h
-	$(CC) -O2 -c ksw.c -o $(KSW_OBJ)
+	$(CC) $(HOST_CFLAGS) -c ksw.c -o $(KSW_OBJ)
 
 # ---- compile SYCL ด้วย acpp ----
-$(CPP_OBJ): $(CPP_SRC)
-	$(ACPP) $(ACPP_FLAGS) -c $(CPP_SRC) -o $(CPP_OBJ)
+$(CPP_OBJ): bwa_sw_sycl.cpp bwa.h
+	$(ACPP) $(ACPP_FLAGS) -c bwa_sw_sycl.cpp -o $(CPP_OBJ)
 
 run: $(TARGET)
 	./$(TARGET)

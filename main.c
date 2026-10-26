@@ -185,6 +185,42 @@ int main(int argc, char **argv)
     fprintf(stderr, "alloc %.3f  load %.3f  encode %.3f  gpu %.3f\n",
         t_alloc - t0, t_load - t_alloc, t_enc - t_load, t_gpu - t_enc);
 
+         {
+        int8_t mat[25];
+        for (int i = 0, k = 0; i < 5; ++i)
+            for (int j = 0; j < 5; ++j, ++k)
+                mat[k] = (i == 4 || j == 4) ? -1 : (i == j ? 1 : -4);
+
+        uint8_t q[MAX_QLEN], t[MAX_RLEN];
+        int n_check = n;
+        int bad = 0;
+
+        printf("\n--- GPU vs ksw_extend2 (%d tasks) ---\n", n_check);
+        for (int i = 0; i < n_check; ++i) {
+
+            for (int x = 0; x < h_qlen[i]; ++x) q[x] = (uint8_t)h_reads[h_qoff[i] + x];
+            for (int x = 0; x < h_rlen[i]; ++x) t[x] = (uint8_t)h_refs [h_roff[i] + x];
+            
+            int qle, tle, gtle, gscore, max_off;
+            int cpu = ksw_extend2(h_qlen[i], q, h_rlen[i], t,
+                                  5, mat, 6, 1, 6, 1,   /* o_del e_del o_ins e_ins */
+                                  100,                  /* w */
+                                  5,                    /* end_bonus */
+                                  100,                  /* zdrop */
+                                  20,                    /* h0 */
+                                  &qle, &tle, &gtle, &gscore, &max_off);
+
+            int ok = (cpu == score[i]) && (qle == qend[i]) && (tle == rend[i]);
+              if (!ok) {
+                ++bad;
+                if (bad <= 10)   // พิมพ์แค่ 10 ตัวแรกที่ผิด
+                    printf("task %d gpu(%d,%d,%d) cpu(%d,%d,%d)\n",
+                           i, score[i], qend[i], rend[i], cpu, qle, tle);
+            }
+        }
+        printf("--- mismatch: %d / %d ---\n", bad, n_check);
+    }
+
     // float GCUPS = total_cells / ((t1 - t0) * 1e9);
     // printf("GCUPS: %.2f\n", GCUPS);
     

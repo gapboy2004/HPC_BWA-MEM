@@ -10,10 +10,10 @@
 
 # ==== ตั้งค่า (เปลี่ยนตอน submit ได้ด้วย --export=ALL,ชื่อ=ค่า) ====
 export BACKENDS=${BACKENDS:-"cuda sycl"}     # รันทั้งสองตัว หรือเลือกตัวเดียว
-export GPU_COUNTS=${GPU_COUNTS:-"1 2 4"}
+export GPU_COUNTS=${GPU_COUNTS:-"1"}
 
 # export SIZES=${SIZES:-"10000000 30000000 50000000 70000000 100000000"}
-export SIZES=${SIZES:-"30000000"}
+export SIZES=${SIZES:-"10000000"}
 
 # block size ที่จะทดสอบ (วนทีละค่า แล้วส่งให้โปรแกรมเป็น SW_BLOCK)
 # 0 = ใช้ default (128) ของ kernel, >0 = block size ใหม่
@@ -21,10 +21,10 @@ export SW_BLOCKS=${SW_BLOCKS:-"128"}
 
 # chunk size ที่จะทดสอบ (วนทีละค่า แล้วส่งให้โปรแกรมเป็น env ชื่อ $CHUNK_VAR)
 # 0 = ใช้ default ของโปรแกรม
-export SW_CHUNKS=${SW_CHUNKS:-"0"}
+export SW_CHUNKS=${SW_CHUNKS:-"10000"}
 export CHUNK_VAR=${CHUNK_VAR:-SW_CHUNK}     # แก้ให้ตรงกับชื่อที่โปรแกรมอ่านด้วย getenv()
 
-export REPEATS=${REPEATS:-3}
+export REPEATS=${REPEATS:-1}
 export BUILD=${BUILD:-1}                     # 1 = build ใหม่ใน container ก่อนรัน
 # flag เพิ่มตอน build (ว่าง = build เหมือน make run ทุกอย่าง)
 export CUDA_MAKE_ARGS=${CUDA_MAKE_ARGS:-}
@@ -35,7 +35,7 @@ IMAGE=${IMAGE:-gapboy/hpc-bwa-mem:v1.1}      # docker (เครื่องต�
 
 # โฟลเดอร์ข้อมูล input → เห็นใน container ที่ /data
 # เครื่องตัวเองใช้ Desktop, บน cluster ส่ง DATA_DIR=/path/ข้อมูล มาเอง
-DATA_DIR=${DATA_DIR:-/home/g6917550019/HPC_BWA-MEM}
+DATA_DIR=${DATA_DIR:-/home/gapboy/Desktop}
 
 # ==== บาง cluster ต้อง module load ก่อนถึงจะมีคำสั่ง container (br1: apptainer/apptainer) ====
 # ทำก่อน set -u เพราะสคริปต์ของระบบ module มักใช้ตัวแปรที่ยังไม่ได้ตั้ง

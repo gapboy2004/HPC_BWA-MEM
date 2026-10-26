@@ -1,12 +1,10 @@
 CC      = gcc
 NVCC    = nvcc
 
-#CFLAGS  = -Wall -Wextra -O2 -g -std=c11
-CFLAGS = -Wall -Wextra -O2 -g -I$(CUDA_HOME)/include
-#NVFLAGS = -O2 -g
-#NVFLAGS = -O2 -g \
-#  -gencode arch=compute_70,code=sm_70 \
-#  -gencode arch=compute_86,code=sm_86
+# host code (main.c, ksw.c, ...) — ใช้ชุดเดียวกับ Makefile.sycl ทุกตัว
+# ต่างกันแค่ -I ของ CUDA (ไม่มีผลกับโค้ดที่ได้)
+HOST_CFLAGS = -Wall -Wextra -O2 -g
+CFLAGS      = $(HOST_CFLAGS) -I$(CUDA_HOME)/include
 
 NVFLAGS = -O2 -lineinfo -Xcompiler -O2 \
   -gencode arch=compute_70,code=sm_70 \
@@ -16,13 +14,14 @@ NVFLAGS = -O2 -lineinfo -Xcompiler -O2 \
 SRCS_C  = bwa_build.c fm_index.c bwa_smem.c ksw.c
 SRCS_CU = bwa_sw.cu
 
-TARGET = sw_cuda
+TARGET   = sw_cuda
+MAIN_OBJ = main_cuda.o          # ★ แยกชื่อจากฝั่ง SYCL (main_sycl.o)
 
 OBJS = $(SRCS_C:.c=.o) $(SRCS_CU:.cu=.o)
 
-.PHONY: all run clean
+.PHONY: all run clean rebuild
 
-all: libbwa.a
+all: $(TARGET)
 
 libbwa.a: $(OBJS)
 	ar rcs $@ $^
@@ -30,8 +29,11 @@ libbwa.a: $(OBJS)
 run: $(TARGET)
 	./$(TARGET)
 
-$(TARGET): main.o $(OBJS)
+$(TARGET): $(MAIN_OBJ) $(OBJS)
 	$(NVCC) -o $@ $^ -lz
+
+$(MAIN_OBJ): main.c bwa.h
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 %.o: %.c bwa.h
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -40,4 +42,6 @@ $(TARGET): main.o $(OBJS)
 	$(NVCC) $(NVFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) main.o libbwa.a $(TARGET)
+	rm -f $(OBJS) $(MAIN_OBJ) main.o libbwa.a $(TARGET)
+
+rebuild: clean all
