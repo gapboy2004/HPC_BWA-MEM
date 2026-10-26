@@ -248,6 +248,39 @@ __global__ void sw_batch_kernel(
 // ============================================================================
 //                             HOST: one GPU
 // ============================================================================
+
+// ---- pinned staging สำหรับ output + qlen/rlen ------------------------------
+// เดิม: D2H ลง score[] (pageable) ตรง ๆ -> ตามกติกา CUDA cudaMemcpyAsync
+//       ไป pageable memory จะ return ก็ต่อเมื่อ copy เสร็จ = รอ kernel จบ
+//       -> host ค้างทุก chunk, 2 stream ไม่เคยซ้อนกัน (เห็นใน nsys:
+//          cudaMemcpyAsync max ~ เวลา kernel 1 ตัว)
+// ใหม่: D2H ลง pinned staging ต่อ lane แล้วค่อย memcpy ไป score[] ตอน lane
+//       นั้นถูกใช้รอบถัดไป (หลัง sync) -> host pack chunk ถัดไปได้ขณะ GPU ทำงาน
+typedef struct
+{
+    int *h_qlen, *h_rlen;                              // input ที่เดิม copy จาก pageable
+    int *h_score, *h_qbeg, *h_qend, *h_rbeg, *h_rend;  // output
+    char *h_cigar;
+    int pend_start, pend_n; // chunk ที่ผลยังค้างอยู่ใน staging (pend_n = 0 คือไม่มี)
+} PinnedIO;
+
+// ย้ายผลของ chunk ที่ค้างอยู่จาก staging -> array ของ caller
+// เรียกได้เฉพาะหลัง cudaStreamSynchronize ของ lane นั้นแล้วเท่านั้น
+static void drain_lane(PinnedIO *p, int *score, int *qbeg, int *qend,
+                       int *rbeg, int *rend, char *cigar)
+{
+    if (p->pend_n <= 0)
+        return;
+    size_t s = (size_t)p->pend_start, n = (size_t)p->pend_n;
+    memcpy(score + s, p->h_score, n * sizeof(int));
+    memcpy(qbeg + s, p->h_qbeg, n * sizeof(int));
+    memcpy(qend + s, p->h_qend, n * sizeof(int));
+    memcpy(rbeg + s, p->h_rbeg, n * sizeof(int));
+    memcpy(rend + s, p->h_rend, n * sizeof(int));
+    memcpy(cigar + s * MAX_CIGAR, p->h_cigar, n * MAX_CIGAR);
+    p->pend_n = 0;
+}
+
 void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size_t qtot,
               const char *h_refs, const size_t *h_roff, const int *h_rlen, size_t rtot,
               int n_tasks,
@@ -266,11 +299,24 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
         CHUNK = n_tasks;
 
     StreamBuf buf[N_STREAM];
+    PinnedIO io[N_STREAM];
 
     for (int s = 0; s < N_STREAM; s++)
     {
         StreamBuf *b = &buf[s];
+        PinnedIO *p = &io[s];
         CUDA_CHECK(cudaStreamCreate(&b->stream));
+
+        CUDA_CHECK(cudaMallocHost((void **)&p->h_qlen, CHUNK * sizeof(int)));
+        CUDA_CHECK(cudaMallocHost((void **)&p->h_rlen, CHUNK * sizeof(int)));
+        CUDA_CHECK(cudaMallocHost((void **)&p->h_score, CHUNK * sizeof(int)));
+        CUDA_CHECK(cudaMallocHost((void **)&p->h_qbeg, CHUNK * sizeof(int)));
+        CUDA_CHECK(cudaMallocHost((void **)&p->h_qend, CHUNK * sizeof(int)));
+        CUDA_CHECK(cudaMallocHost((void **)&p->h_rbeg, CHUNK * sizeof(int)));
+        CUDA_CHECK(cudaMallocHost((void **)&p->h_rend, CHUNK * sizeof(int)));
+        CUDA_CHECK(cudaMallocHost((void **)&p->h_cigar, (size_t)CHUNK * MAX_CIGAR));
+        p->pend_start = 0;
+        p->pend_n = 0;
 
         CUDA_CHECK(cudaMalloc((void **)&b->d_reads, (size_t)CHUNK * MAX_QLEN));
         CUDA_CHECK(cudaMalloc((void **)&b->d_refs, (size_t)CHUNK * MAX_RLEN));
@@ -296,7 +342,10 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
     {
         int s = (start / CHUNK) % N_STREAM;
         StreamBuf *b = &buf[s];
+        PinnedIO *p = &io[s];
         CUDA_CHECK(cudaStreamSynchronize(b->stream));
+        // lane นี้ว่างแล้ว -> ผลของ chunk ก่อนหน้า (ถ้ามี) อยู่ใน staging ครบ
+        drain_lane(p, score, qbeg, qend, rbeg, rend, cigar);
 
         int n = (start + CHUNK <= n_tasks) ? CHUNK : (n_tasks - start);
 
@@ -311,14 +360,16 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
             memcpy(b->h_refs + rcur, h_refs + h_roff[g], h_rlen[g]);
             rcur += h_rlen[g];
         }
+        memcpy(p->h_qlen, h_qlen + start, n * sizeof(int)); // -> pinned
+        memcpy(p->h_rlen, h_rlen + start, n * sizeof(int));
 
         CUDA_CHECK(cudaMemcpyAsync(b->d_reads, b->h_reads, qcur, cudaMemcpyHostToDevice, b->stream));
         CUDA_CHECK(cudaMemcpyAsync(b->d_refs, b->h_refs, rcur, cudaMemcpyHostToDevice, b->stream));
         CUDA_CHECK(cudaMemcpyAsync(b->d_qoff, b->h_qoff, n * sizeof(int), cudaMemcpyHostToDevice, b->stream));
         CUDA_CHECK(cudaMemcpyAsync(b->d_roff, b->h_roff, n * sizeof(int), cudaMemcpyHostToDevice, b->stream));
-        CUDA_CHECK(cudaMemcpyAsync(b->d_qlen, h_qlen + start, n * sizeof(int), cudaMemcpyHostToDevice, b->stream));
-        CUDA_CHECK(cudaMemcpyAsync(b->d_rlen, h_rlen + start, n * sizeof(int), cudaMemcpyHostToDevice, b->stream));
-        
+        CUDA_CHECK(cudaMemcpyAsync(b->d_qlen, p->h_qlen, n * sizeof(int), cudaMemcpyHostToDevice, b->stream));
+        CUDA_CHECK(cudaMemcpyAsync(b->d_rlen, p->h_rlen, n * sizeof(int), cudaMemcpyHostToDevice, b->stream));
+
 
         int block = 128;
         const char *eb = getenv("SW_BLOCK");
@@ -333,19 +384,32 @@ void sw_batch(const char *h_reads, const size_t *h_qoff, const int *h_qlen, size
             nullptr, nullptr); // h0_arr, w_arr — ใส่ของจริงเมื่อ trace พร้อม
         CUDA_CHECK(cudaGetLastError());
 
-        CUDA_CHECK(cudaMemcpyAsync(score + start, b->d_score, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
-        CUDA_CHECK(cudaMemcpyAsync(qbeg + start, b->d_qbeg, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
-        CUDA_CHECK(cudaMemcpyAsync(qend + start, b->d_qend, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
-        CUDA_CHECK(cudaMemcpyAsync(rbeg + start, b->d_rbeg, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
-        CUDA_CHECK(cudaMemcpyAsync(rend + start, b->d_rend, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
-        CUDA_CHECK(cudaMemcpyAsync(cigar + (size_t)start * MAX_CIGAR, b->d_cigar,
+        // D2H ลง pinned staging -> async จริง host ไม่ค้าง
+        CUDA_CHECK(cudaMemcpyAsync(p->h_score, b->d_score, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
+        CUDA_CHECK(cudaMemcpyAsync(p->h_qbeg, b->d_qbeg, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
+        CUDA_CHECK(cudaMemcpyAsync(p->h_qend, b->d_qend, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
+        CUDA_CHECK(cudaMemcpyAsync(p->h_rbeg, b->d_rbeg, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
+        CUDA_CHECK(cudaMemcpyAsync(p->h_rend, b->d_rend, n * sizeof(int), cudaMemcpyDeviceToHost, b->stream));
+        CUDA_CHECK(cudaMemcpyAsync(p->h_cigar, b->d_cigar,
                                    (size_t)n * MAX_CIGAR, cudaMemcpyDeviceToHost, b->stream));
+        p->pend_start = start;
+        p->pend_n = n;
     }
 
     for (int s = 0; s < N_STREAM; s++)
     {
         StreamBuf *b = &buf[s];
+        PinnedIO *p = &io[s];
         CUDA_CHECK(cudaStreamSynchronize(b->stream));
+        drain_lane(p, score, qbeg, qend, rbeg, rend, cigar); // ★ chunk สุดท้ายของ lane นี้
+        cudaFreeHost(p->h_qlen);
+        cudaFreeHost(p->h_rlen);
+        cudaFreeHost(p->h_score);
+        cudaFreeHost(p->h_qbeg);
+        cudaFreeHost(p->h_qend);
+        cudaFreeHost(p->h_rbeg);
+        cudaFreeHost(p->h_rend);
+        cudaFreeHost(p->h_cigar);
         cudaStreamDestroy(b->stream);
         cudaFree(b->d_reads);
         cudaFree(b->d_refs);

@@ -75,7 +75,31 @@ struct Lane
     char *d_cigar;
     char *h_reads, *h_refs; // pinned staging
     int *h_qoff, *h_roff;
+
+    // pinned staging สำหรับ qlen/rlen + output (ให้โครงเหมือนฝั่ง CUDA เป๊ะ)
+    // เดิม q.memcpy ไป/จาก score[], h_qlen (pageable) ตรง ๆ
+    int *h_qlen, *h_rlen;
+    int *h_score, *h_qbeg, *h_qend, *h_rbeg, *h_rend;
+    char *h_cigar;
+    int pend_start = 0, pend_n = 0; // chunk ที่ผลยังค้างใน staging
 };
+
+// ย้ายผลของ chunk ที่ค้างอยู่จาก staging -> array ของ caller
+// เรียกได้เฉพาะหลัง L.q.wait() แล้วเท่านั้น
+static void drain_lane(Lane &L, int *score, int *qbeg, int *qend,
+                       int *rbeg, int *rend, char *cigar)
+{
+    if (L.pend_n <= 0)
+        return;
+    size_t s = (size_t)L.pend_start, n = (size_t)L.pend_n;
+    memcpy(score + s, L.h_score, n * sizeof(int));
+    memcpy(qbeg + s, L.h_qbeg, n * sizeof(int));
+    memcpy(qend + s, L.h_qend, n * sizeof(int));
+    memcpy(rbeg + s, L.h_rbeg, n * sizeof(int));
+    memcpy(rend + s, L.h_rend, n * sizeof(int));
+    memcpy(cigar + s * MAX_CIGAR, L.h_cigar, n * MAX_CIGAR);
+    L.pend_n = 0;
+}
 
 void sw_sycl(sycl::device dev, int n_tasks,
              const char *h_reads, const size_t *h_qoff, const int *h_qlen,
@@ -115,6 +139,16 @@ void sw_sycl(sycl::device dev, int n_tasks,
         L.h_refs = sycl::malloc_host<char>((size_t)CHUNK * MAX_RLEN, L.q);
         L.h_qoff = sycl::malloc_host<int>(CHUNK, L.q);
         L.h_roff = sycl::malloc_host<int>(CHUNK, L.q);
+        L.h_qlen = sycl::malloc_host<int>(CHUNK, L.q);
+        L.h_rlen = sycl::malloc_host<int>(CHUNK, L.q);
+        L.h_score = sycl::malloc_host<int>(CHUNK, L.q);
+        L.h_qbeg = sycl::malloc_host<int>(CHUNK, L.q);
+        L.h_qend = sycl::malloc_host<int>(CHUNK, L.q);
+        L.h_rbeg = sycl::malloc_host<int>(CHUNK, L.q);
+        L.h_rend = sycl::malloc_host<int>(CHUNK, L.q);
+        L.h_cigar = sycl::malloc_host<char>((size_t)CHUNK * MAX_CIGAR, L.q);
+        L.pend_start = 0;
+        L.pend_n = 0;
     }
 
     int chunk_id = 0;
@@ -122,6 +156,8 @@ void sw_sycl(sycl::device dev, int n_tasks,
     {
         Lane &L = lanes[chunk_id % N_LANE];
         L.q.wait(); // buffer ของ lane นี้ว่างแล้ว
+        // ผลของ chunk ก่อนหน้า (ถ้ามี) อยู่ใน staging ครบ
+        drain_lane(L, score, qbeg, qend, rbeg, rend, cigar);
 
         int n = DMIN(CHUNK, n_tasks - start);
 
@@ -142,8 +178,10 @@ void sw_sycl(sycl::device dev, int n_tasks,
         L.q.memcpy(L.d_refs, L.h_refs, rcur);
         L.q.memcpy(L.d_qoff, L.h_qoff, n * sizeof(int));
         L.q.memcpy(L.d_roff, L.h_roff, n * sizeof(int));
-        L.q.memcpy(L.d_qlen, h_qlen + start, n * sizeof(int));
-        L.q.memcpy(L.d_rlen, h_rlen + start, n * sizeof(int));
+        memcpy(L.h_qlen, h_qlen + start, n * sizeof(int)); // -> pinned
+        memcpy(L.h_rlen, h_rlen + start, n * sizeof(int));
+        L.q.memcpy(L.d_qlen, L.h_qlen, n * sizeof(int));
+        L.q.memcpy(L.d_rlen, L.h_rlen, n * sizeof(int));
 
         char *d_reads = L.d_reads, *d_refs = L.d_refs;
         int *d_qoff = L.d_qoff, *d_qlen = L.d_qlen;
@@ -328,18 +366,29 @@ void sw_sycl(sycl::device dev, int n_tasks,
                 (void)max_off;
             });
 
-        L.q.memcpy(score + start, L.d_score, n * sizeof(int));
-        L.q.memcpy(qbeg + start, L.d_qbeg, n * sizeof(int));
-        L.q.memcpy(qend + start, L.d_qend, n * sizeof(int));
-        L.q.memcpy(rbeg + start, L.d_rbeg, n * sizeof(int));
-        L.q.memcpy(rend + start, L.d_rend, n * sizeof(int));
-        L.q.memcpy(cigar + (size_t)start * MAX_CIGAR, L.d_cigar,
-                   (size_t)n * MAX_CIGAR);
+        // D2H ลง pinned staging (เหมือนฝั่ง CUDA)
+        L.q.memcpy(L.h_score, L.d_score, n * sizeof(int));
+        L.q.memcpy(L.h_qbeg, L.d_qbeg, n * sizeof(int));
+        L.q.memcpy(L.h_qend, L.d_qend, n * sizeof(int));
+        L.q.memcpy(L.h_rbeg, L.d_rbeg, n * sizeof(int));
+        L.q.memcpy(L.h_rend, L.d_rend, n * sizeof(int));
+        L.q.memcpy(L.h_cigar, L.d_cigar, (size_t)n * MAX_CIGAR);
+        L.pend_start = start;
+        L.pend_n = n;
     }
 
     for (auto &L : lanes)
     {
         L.q.wait();
+        drain_lane(L, score, qbeg, qend, rbeg, rend, cigar); // ★ chunk สุดท้ายของ lane นี้
+        sycl::free(L.h_qlen, L.q);
+        sycl::free(L.h_rlen, L.q);
+        sycl::free(L.h_score, L.q);
+        sycl::free(L.h_qbeg, L.q);
+        sycl::free(L.h_qend, L.q);
+        sycl::free(L.h_rbeg, L.q);
+        sycl::free(L.h_rend, L.q);
+        sycl::free(L.h_cigar, L.q);
         sycl::free(L.d_reads, L.q);
         sycl::free(L.d_refs, L.q);
         sycl::free(L.d_qoff, L.q);
