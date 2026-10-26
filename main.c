@@ -94,9 +94,8 @@ int main(int argc, char **argv)
     const char *tpath = getenv("TARGET_FASTA");
     if (!qpath) qpath = "/data/real_query_full.fasta";
     if (!tpath) tpath = "/data/real_target_full.fasta";
-
-        gzFile fq = gzopen("/data/real_query_full.fasta", "r");
-        gzFile ft = gzopen("/data/real_target_full.fasta", "r");
+    gzFile fq = gzopen(qpath, "r");
+    gzFile ft = gzopen(tpath, "r");
 
 
     if (!fq || !ft)
