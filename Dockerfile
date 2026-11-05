@@ -1,5 +1,5 @@
-FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
-
+#FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.9.1-devel-ubuntu22.04
 # --------------------------------------------------
 # Basic dependencies
 # --------------------------------------------------
