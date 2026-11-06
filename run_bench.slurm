@@ -13,15 +13,15 @@ export BACKENDS=${BACKENDS:-"cuda sycl"}     # รันทั้งสองต
 export GPU_COUNTS=${GPU_COUNTS:-"1"}
 
 # export SIZES=${SIZES:-"10000000 30000000 50000000 70000000 100000000"}
-export SIZES=${SIZES:-"10000000"}
+export SIZES=${SIZES:-"100000"}
 
 # block size ที่จะทดสอบ (วนทีละค่า แล้วส่งให้โปรแกรมเป็น SW_BLOCK)
 # 0 = ใช้ default (128) ของ kernel, >0 = block size ใหม่
-export SW_BLOCKS=${SW_BLOCKS:-"128"}
+export SW_BLOCKS=${SW_BLOCKS:-"32"}
 
 # chunk size ที่จะทดสอบ (วนทีละค่า แล้วส่งให้โปรแกรมเป็น env ชื่อ $CHUNK_VAR)
 # 0 = ใช้ default ของโปรแกรม
-export SW_CHUNKS=${SW_CHUNKS:-"10000"}
+export SW_CHUNKS=${SW_CHUNKS:-"12000"}
 export CHUNK_VAR=${CHUNK_VAR:-SW_CHUNK}     # แก้ให้ตรงกับชื่อที่โปรแกรมอ่านด้วย getenv()
 
 export REPEATS=${REPEATS:-1}
@@ -31,7 +31,7 @@ export CUDA_MAKE_ARGS=${CUDA_MAKE_ARGS:-}
 export SYCL_MAKE_ARGS=${SYCL_MAKE_ARGS:-}
 
 SIF=${SIF:-$HOME/hpc-bwa-mem.sif}            # apptainer/singularity: ไฟล์ .sif หรือโฟลเดอร์ sandbox
-IMAGE=${IMAGE:-gapboy/hpc-bwa-mem:v1.1}      # docker (เครื่องตัวเอง)
+IMAGE=${IMAGE:-gapboy/hpc-bwa-mem:v1.2}      # docker (เครื่องตัวเอง)
 
 # โฟลเดอร์ข้อมูล input → เห็นใน container ที่ /data
 # เครื่องตัวเองใช้ Desktop, บน cluster ส่ง DATA_DIR=/path/ข้อมูล มาเอง
